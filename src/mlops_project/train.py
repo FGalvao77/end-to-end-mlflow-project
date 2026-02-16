@@ -115,8 +115,11 @@ def main():
     
     # Gerar e salvar curva ROC
     plt.figure(figsize=(8, 6))
-    RocCurveDisplay.from_predictions(y_test, y_pred_proba, name='Random Forest').plot()
-    plt.title('ROC Curve - Random Forest Model', fontdict={'fontsize': 15, 'fontweight': 'bold'})
+    RocCurveDisplay.from_predictions(y_test, y_pred_proba, 
+                                     name='Random Forest').plot()
+    plt.title('ROC Curve - Random Forest Model\n', 
+              fontdict={'fontsize': 15, 
+                        'fontweight': 'bold'})
     plt.xlabel('False Positive Rate', fontsize=12)
     plt.ylabel('True Positive Rate', fontsize=12)
     plt.grid(visible=True, alpha=0.3)
