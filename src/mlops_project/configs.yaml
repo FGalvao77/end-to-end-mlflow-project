@@ -13,9 +13,11 @@ model:
     n_jobs: -1
     random_state: 42
 paths:
+  exported_model_dir: artifacts/model
+  plots: plots
   data: data/processed
   model: models
   metrics: metrics
   params: params
-  plots: plots
-  exported_model_dir: artifacts/model
+
+
