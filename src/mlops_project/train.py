@@ -29,7 +29,7 @@ warnings.filterwarnings(action='ignore', category=FutureWarning)
 
 USE_MLFLOW = False
 try:
-    import mlflow, mlflow.sklearn
+    import mlflow, mlflow.sklearn 
     USE_MLFLOW = True
 except Exception:
     USE_MLFLOW = False
