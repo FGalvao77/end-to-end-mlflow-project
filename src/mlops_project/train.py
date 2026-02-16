@@ -7,7 +7,9 @@ from sklearn.ensemble import RandomForestClassifier
 
 from sklearn.metrics import (classification_report, 
                              confusion_matrix, 
-                             ConfusionMatrixDisplay, 
+                             ConfusionMatrixDisplay,
+                             roc_curve,
+                             RocCurveDisplay,
                              precision_score, 
                              recall_score, 
                              f1_score)
@@ -49,6 +51,7 @@ def main():
 
     pipe.fit(X=X_train, y=y_train)
     y_pred = pipe.predict(X=X_test)
+    y_pred_proba = pipe.predict_proba(X=X_test)[:, 1]
 
     metrics = {
         'accuracy': pipe.score(X=X_test, y=y_test),
@@ -108,6 +111,19 @@ def main():
     # Salvar matriz de confusão em artifacts/plots
     plt.savefig(plots_dir / 'confusion_matrix.png', dpi=300, bbox_inches='tight')
     print(f'Confusion matrix saved to: {plots_dir / "confusion_matrix.png"}')
+    plt.close()
+    
+    # Gerar e salvar curva ROC
+    plt.figure(figsize=(8, 6))
+    RocCurveDisplay.from_predictions(y_test, y_pred_proba, name='Random Forest').plot()
+    plt.title('ROC Curve - Random Forest Model', fontdict={'fontsize': 15, 'fontweight': 'bold'})
+    plt.xlabel('False Positive Rate', fontsize=12)
+    plt.ylabel('True Positive Rate', fontsize=12)
+    plt.grid(visible=True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(plots_dir / 'roc_curve.png', dpi=300, bbox_inches='tight')
+    print(f'ROC curve saved to: {plots_dir / "roc_curve.png"}')
+    plt.close()
 
     dump(value=pipe, filename=exported / 'model.joblib')
     print(f'Model saved to: {exported / "model.joblib"}')
