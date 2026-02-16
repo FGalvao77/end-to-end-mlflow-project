@@ -1,8 +1,11 @@
 # 🚀 End-to-End MLflow Project
 
-[`https://www.python.org/`](https://www.python.org/)  
-[`https://mlflow.org/`](https://mlflow.org/)  
-[`https://github.com/features/actions`](https://github.com/features/actions)
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)
+![MLflow](https://img.shields.io/badge/MLOps-MLflow-orange?logo=mlflow)
+![GitHub Actions](https://img.shields.io/badge/CI/CD-GitHub%20Actions-lightgrey?logo=githubactions&logoColor=blue)
+![Lint](https://img.shields.io/badge/Lint-Flake8-yellow?logo=python)
+![Tests](https://img.shields.io/badge/Tests-Pytest-green?logo=pytest)
+![License](https://img.shields.io/badge/License-MIT-success?logo=open-source-initiative)
 
 ---
 
