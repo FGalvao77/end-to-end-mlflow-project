@@ -76,11 +76,11 @@ def prepare_data(X:tuple, y:tuple, size:float,
     
     return X_train, X_test, y_train, y_test
 
-if __name__ == "__main__":
-    X, y = load_data()
-    X_train, X_test, y_train, y_test = \
-        prepare_data(X, y, size=0.2, 
-                     random_state=42, 
-                     stratify=True)
-    print(f'X_train shape: {X_train.shape}, y_train shape: {y_train.shape}')
-    print(f'X_test shape: {X_test.shape}, y_test shape: {y_test.shape}')    
+# if __name__ == "__main__":
+#     X, y = load_data()
+#     X_train, X_test, y_train, y_test = \
+#         prepare_data(X, y, size=0.2, 
+#                      random_state=42, 
+#                      stratify=True)
+#     print(f'X_train shape: {X_train.shape}, y_train shape: {y_train.shape}')
+#     print(f'X_test shape: {X_test.shape}, y_test shape: {y_test.shape}')    

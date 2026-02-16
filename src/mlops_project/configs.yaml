@@ -14,10 +14,6 @@ model:
     random_state: 42
 paths:
   exported_model_dir: artifacts/model
-  plots: plots
-  data: data/processed
-  model: models
-  metrics: metrics
-  params: params
+  plots: artifacts/plots
 
 

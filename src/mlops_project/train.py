@@ -78,14 +78,18 @@ def main():
 
 
     exported = Path(config['paths']['exported_model_dir']).resolve()
-    
+    plots_dir = Path(config['paths']['plots']).resolve()
+
     # Limpar o diretório se já existir
     if exported.exists():
         shutil.rmtree(exported)
     
     exported.mkdir(parents=True, exist_ok=True)
-    plt.savefig(exported / 'confusion_matrix.png', dpi=300, bbox_inches='tight')
-    print(f'Confusion matrix saved to: {exported / "confusion_matrix.png"}')
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Salvar matriz de confusão em artifacts/plots
+    plt.savefig(plots_dir / 'confusion_matrix.png', dpi=300, bbox_inches='tight')
+    print(f'Confusion matrix saved to: {plots_dir / "confusion_matrix.png"}')
 
     dump(value=pipe, filename=exported / 'model.joblib')
     print(f'Model saved to: {exported / "model.joblib"}')
