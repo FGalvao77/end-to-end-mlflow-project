@@ -21,3 +21,7 @@ prometheus-client>=0.20
 # S3/MinIO quando o cliente Python precisar acessar (ex.: treino local falando direto com S3)
 boto3>=1.34
 botocore>=1.34
+
+# Testes
+# pytest>=7.4.0
+# iniconfig>=1.3.0

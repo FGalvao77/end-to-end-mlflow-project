@@ -2,8 +2,7 @@
 
 [`https://www.python.org/`](https://www.python.org/)  
 [`https://mlflow.org/`](https://mlflow.org/)  
-[`https://github.com/features/actions`](https://github.com/features/actions)  
-`[Parece que o resultado não era seguro para exibição. Vamos mudar as coisas e tentar outra opção!]`
+[`https://github.com/features/actions`](https://github.com/features/actions)
 
 ---
 
