@@ -76,6 +76,7 @@ def prepare_data(X:tuple, y:tuple, size:float,
     
     return X_train, X_test, y_train, y_test
 
+# script for testing the functions
 # if __name__ == "__main__":
 #     X, y = load_data()
 #     X_train, X_test, y_train, y_test = \
