@@ -58,7 +58,25 @@ def main():
     }
     print(f'METRICS: {metrics}')
 
-    print(f'CLASSIFICATION REPORT:\n{classification_report(y_true=y_test, y_pred=y_pred)}')
+    classification_rep = classification_report(y_true=y_test, y_pred=y_pred)
+    print(f'CLASSIFICATION REPORT:\n{classification_rep}')
+    
+    # Salvar métricas em arquivo txt
+    metrics_dir = Path(config['paths']['metrics']).resolve()
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    
+    with open(metrics_dir / 'metrics.txt', 'w') as f:
+        f.write('MODEL METRICS\n')
+        f.write('=' * 50 + '\n\n')
+        for key, value in metrics.items():
+            f.write(f'{key}: {value}\n')
+        f.write('\n' + '=' * 50 + '\n')
+        f.write('CLASSIFICATION REPORT\n')
+        f.write('=' * 50 + '\n')
+        f.write(classification_rep)
+    
+    print(f'Metrics saved to: {metrics_dir / "metrics.txt"}')
+    
     cm = confusion_matrix(y_true=y_test, y_pred=y_pred)
 
     plt.figure(figsize=(8, 8))
