@@ -1,10 +1,15 @@
+# Author: Fernando Galvão
+# Date: 2024-06-20
+# Description: Script de treinamento do modelo de classificação utilizando Random Forest. O script inclui etapas de pré-processamento, treinamento, avaliação e salvamento do modelo, métricas e visualizações. O código é modularizado para facilitar a manutenção e a integração com pipelines de MLOps.
+
+# Importações necessárias para o script
 from load_prepare_data import load_data, prepare_data
 from utils import load_config
 
+# Bibliotecas para modelagem, avaliação e visualização
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
-
 from sklearn.metrics import (classification_report, 
                              confusion_matrix, 
                              ConfusionMatrixDisplay,
@@ -13,20 +18,20 @@ from sklearn.metrics import (classification_report,
                              precision_score, 
                              recall_score, 
                              f1_score)
-
 import matplotlib.pyplot as plt
 plt.style.use(style='ggplot')
 
 from pathlib import Path
-
 from joblib import dump
 
 import os
 import shutil
 
+# Ignorar warnings de FutureWarning para evitar poluição do output
 import warnings
 warnings.filterwarnings(action='ignore', category=FutureWarning)
 
+# Verificar se MLflow está disponível para uso
 USE_MLFLOW = False
 try:
     import mlflow, mlflow.sklearn 
@@ -34,40 +39,58 @@ try:
 except Exception:
     USE_MLFLOW = False
 
+# Função principal do script de treinamento
 def main():
     config = load_config(file_path='configs.yaml')
     print(f'CONFIG: {config}')
 
+    # Carregar e preparar os dados
     X, y = load_data(as_frame=False)
     X_train, X_test, y_train, y_test = prepare_data(X=X, y=y, size=config['test_size'], 
                                                     random_state=config['random_state'], 
                                                     stratify=config['stratify'])
     print(f'SHAPES: {X_train.shape}, {X_test.shape}, {y_train.shape}, {y_test.shape}')
 
+    # Criar pipeline de pré-processamento e modelagem
     pipe = Pipeline(steps=[
         ('scaler', StandardScaler()),
         ('rf_model', RandomForestClassifier(**config['model']['params']))
     ])
 
+    # Treinar o modelo e fazer previsões
     pipe.fit(X=X_train, y=y_train)
     y_pred = pipe.predict(X=X_test)
+    # Obter probabilidades para a classe positiva (assumindo classificação binária)
     y_pred_proba = pipe.predict_proba(X=X_test)[:, 1]
 
+    # Salvar os parâmetros do modelo em um arquivo txt
+    params_dir = Path(config['paths']['params']).resolve()
+    params_dir.mkdir(parents=True, exist_ok=True)
+    with open(params_dir / 'model_params.txt', 'w') as f:
+        f.write('MODEL PARAMETERS\n')
+        f.write('=' * 50 + '\n\n')
+        for key, value in config['model']['params'].items():
+            f.write(f'{key}: {value}\n')
+    print(f'Model parameters saved to: {params_dir / "model_params.txt"}')
+
+    # Calcular métricas de avaliação
     metrics = {
         'accuracy': pipe.score(X=X_test, y=y_test),
         'precision': precision_score(y_true=y_test, y_pred=y_pred),
         'recall': recall_score(y_true=y_test, y_pred=y_pred),
         'f1_score': f1_score(y_true=y_test, y_pred=y_pred)
     }
+    # Exibir métricas no console
     print(f'METRICS: {metrics}')
 
+    # Gerar relatório de classificação detalhado
     classification_rep = classification_report(y_true=y_test, y_pred=y_pred)
+    # Exibir relatório de classificação no console
     print(f'CLASSIFICATION REPORT:\n{classification_rep}')
     
     # Salvar métricas em arquivo txt
     metrics_dir = Path(config['paths']['metrics']).resolve()
     metrics_dir.mkdir(parents=True, exist_ok=True)
-    
     with open(metrics_dir / 'metrics.txt', 'w') as f:
         f.write('MODEL METRICS\n')
         f.write('=' * 50 + '\n\n')
@@ -77,11 +100,12 @@ def main():
         f.write('CLASSIFICATION REPORT\n')
         f.write('=' * 50 + '\n')
         f.write(classification_rep)
-    
+    # Exibir caminho do arquivo de métricas salvo
     print(f'Metrics saved to: {metrics_dir / "metrics.txt"}')
     
+    # Gerar e salvar matriz de confusão
     cm = confusion_matrix(y_true=y_test, y_pred=y_pred)
-
+    # Configurar visualização da matriz de confusão
     plt.figure(figsize=(8, 8))
     ConfusionMatrixDisplay(confusion_matrix=cm,
                            display_labels=pipe.classes_).plot(cmap='Blues')
@@ -97,15 +121,19 @@ def main():
     plt.grid(visible=False)
     plt.tight_layout()
 
-
+    # Configurar diretórios para salvar o modelo e as visualizações
     exported = Path(config['paths']['exported_model_dir']).resolve()
+
+    # Configurar diretório para salvar as visualizações (plots)
     plots_dir = Path(config['paths']['plots']).resolve()
 
     # Limpar o diretório se já existir
     if exported.exists():
         shutil.rmtree(exported)
     
+    # Criar os diretórios necessários para salvar o modelo e as visualizações
     exported.mkdir(parents=True, exist_ok=True)
+    # Criar diretório para salvar as visualizações (plots)
     plots_dir.mkdir(parents=True, exist_ok=True)
     
     # Salvar matriz de confusão em artifacts/plots
@@ -128,24 +156,29 @@ def main():
     print(f'ROC curve saved to: {plots_dir / "roc_curve.png"}')
     plt.close()
 
+    # Salvar o modelo treinado usando joblib
     dump(value=pipe, filename=exported / 'model.joblib')
+    # Exibir caminho do arquivo do modelo salvo
     print(f'Model saved to: {exported / "model.joblib"}')
 
+    # Salvar o modelo usando MLflow, se disponível
     if USE_MLFLOW:
         # Limpar o diretório antes do MLflow salvar (MLflow exige diretório vazio)
         if exported.exists():
             shutil.rmtree(exported)
         exported.mkdir(parents=True, exist_ok=True)
-        
+        # Salvar o modelo usando MLflow
         mlflow.sklearn.save_model(sk_model=pipe, path=exported)
         print(f'Model saved to: {exported}')
 
+        # Configurar MLflow tracking URI e experiment name a partir das variáveis de ambiente
         if (os.getenv(key='MLFLOW_TRACKING_URI') is not None) and (os.getenv(key='MLFLOW_EXPERIMENT_NAME') is not None):
             mlflow.set_tracking_uri(uri=os.getenv(key='MLFLOW_TRACKING_URI'))
             mlflow.set_experiment(experiment_name=os.getenv(key='MLFLOW_EXPERIMENT_NAME'))
             print(f'MLflow tracking URI: {os.getenv(key="MLFLOW_TRACKING_URI")}')
             print(f'MLflow experiment name: {os.getenv("MLFLOW_EXPERIMENT_NAME")}')
 
+            # Iniciar uma nova execução no MLflow e logar os parâmetros, métricas e o modelo
             with mlflow.start_run(run_name=os.getenv('MLFLOW_RUN_NAME', 'train')):
                 for key, value in config.items():
                     mlflow.log_param(key=key, value=value)
@@ -159,5 +192,6 @@ def main():
     else:
         print('MLflow is not installed. Skipping MLflow logging.')
 
+# Executar a função principal quando o script for executado diretamente
 if __name__ == '__main__':
     main()

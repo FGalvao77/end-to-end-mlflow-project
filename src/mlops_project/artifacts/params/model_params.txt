@@ -1,0 +1,11 @@
+MODEL PARAMETERS
+==================================================
+
+bootstrap: True
+class_weight: balanced_subsample
+criterion: log_loss
+max_depth: 150
+max_features: sqrt
+n_estimators: 1500
+n_jobs: -1
+random_state: 42
