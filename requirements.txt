@@ -1,27 +1,28 @@
-pip>=26.0.1
+# Recomenda-se usar um ambiente virtual (venv ou conda) para isolar as dependências do projeto.
+pip>=26.0.0
 
-# Core científico
-numpy>=2.2.0
+# Dependências principais para manipulação de dados, modelagem e serialização
 pandas>=2.3.3
-scikit-learn==1.7.2
+numpy>=2.2.0
+scikit-learn>=1.7.2
 joblib>=1.3
 
-# Step-by-step instructions for execution
+# Visualização (se você rodar seu main.py ou fizer análises exploratórias)
 matplotlib>=3.10.8
 
-# MLflow (serving e tracking)
+# MLflow para rastreamento de experimentos, gerenciamento de modelos e deployment
 mlflow>=3.9.0
 PyYAML>=6.0
 
-# (Opcional) API própria com FastAPI + métricas (se você rodar seu main.py)
+# (Opcional) Dependências para deployment com FastAPI e monitoramento com Prometheus
 fastapi>=0.115
 uvicorn[standard]>=0.30
 prometheus-client>=0.20
 
-# S3/MinIO quando o cliente Python precisar acessar (ex.: treino local falando direto com S3)
+# Dependências para integração com AWS (se for usar S3 para armazenamento de artefatos ou SageMaker para deployment)    
 boto3>=1.34
 botocore>=1.34
 
-# Testes
+# Dependências para testes unitários e de integração
 # pytest>=7.4.0
 # iniconfig>=1.3.0

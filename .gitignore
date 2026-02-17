@@ -1,5 +1,8 @@
 .env
+
 step-by-step_instructions_for_execution.ipynb
+
+test.py
 tests/test_data_preprocessing.py
 tests/test_deploy.py
 tests/test_evaluate.py

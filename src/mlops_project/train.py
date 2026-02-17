@@ -18,8 +18,9 @@ from sklearn.metrics import (classification_report,
                              precision_score, 
                              recall_score, 
                              f1_score)
+
 import matplotlib.pyplot as plt
-plt.style.use(style='ggplot')
+plt.style.use(style='ggplot') 
 
 from pathlib import Path
 from joblib import dump
@@ -44,11 +45,13 @@ def main():
     config = load_config(file_path='configs.yaml')
     print(f'CONFIG: {config}')
 
-    # Carregar e preparar os dados
+    # Carrega os dados usando a função load_data definida em load_prepare_data.py
     X, y = load_data(as_frame=False)
+    # Dividir os dados em conjuntos de treino e teste usando a função prepare_data
     X_train, X_test, y_train, y_test = prepare_data(X=X, y=y, size=config['test_size'], 
                                                     random_state=config['random_state'], 
                                                     stratify=config['stratify'])
+    # Exibir as formas dos conjuntos de treino e teste para verificação
     print(f'SHAPES: {X_train.shape}, {X_test.shape}, {y_train.shape}, {y_test.shape}')
 
     # Criar pipeline de pré-processamento e modelagem
@@ -60,12 +63,15 @@ def main():
     # Treinar o modelo e fazer previsões
     pipe.fit(X=X_train, y=y_train)
     y_pred = pipe.predict(X=X_test)
+
     # Obter probabilidades para a classe positiva (assumindo classificação binária)
     y_pred_proba = pipe.predict_proba(X=X_test)[:, 1]
 
     # Salvar os parâmetros do modelo em um arquivo txt
     params_dir = Path(config['paths']['params']).resolve()
+    # Criar o diretório para salvar os parâmetros do modelo, se não existir
     params_dir.mkdir(parents=True, exist_ok=True)
+    # Salvar os parâmetros do modelo em um arquivo txt
     with open(params_dir / 'model_params.txt', 'w') as f:
         f.write('MODEL PARAMETERS\n')
         f.write('=' * 50 + '\n\n')
@@ -90,7 +96,9 @@ def main():
     
     # Salvar métricas em arquivo txt
     metrics_dir = Path(config['paths']['metrics']).resolve()
+    # Criar o diretório para salvar as métricas, se não existir
     metrics_dir.mkdir(parents=True, exist_ok=True)
+    # Salvar as métricas e o relatório de classificação em um arquivo txt
     with open(metrics_dir / 'metrics.txt', 'w') as f:
         f.write('MODEL METRICS\n')
         f.write('=' * 50 + '\n\n')
@@ -105,6 +113,9 @@ def main():
     
     # Gerar e salvar matriz de confusão
     cm = confusion_matrix(y_true=y_test, y_pred=y_pred)
+    # Exibir matriz de confusão no console
+    print(f'Confusion Matrix:\n{cm}')
+
     # Configurar visualização da matriz de confusão
     plt.figure(figsize=(8, 8))
     ConfusionMatrixDisplay(confusion_matrix=cm,
@@ -140,6 +151,13 @@ def main():
     plt.savefig(plots_dir / 'confusion_matrix.png', dpi=300, bbox_inches='tight')
     print(f'Confusion matrix saved to: {plots_dir / "confusion_matrix.png"}')
     plt.close()
+
+    # Gerar dados para a curva ROC
+    roc_curve_data = roc_curve(y_true=y_test, y_score=y_pred_proba)
+    # Exibir dados da curva ROC no console (fpr, tpr, thresholds)
+    print(f'ROC curve data (fpr, tpr, thresholds): \n{roc_curve_data}')
+    roc_auc = pipe.score(X=X_test, y=y_test)
+    print(f'ROC AUC: {roc_auc}')
     
     # Gerar e salvar curva ROC
     plt.figure(figsize=(8, 6))
@@ -155,6 +173,34 @@ def main():
     plt.savefig(plots_dir / 'roc_curve.png', dpi=300, bbox_inches='tight')
     print(f'ROC curve saved to: {plots_dir / "roc_curve.png"}')
     plt.close()
+
+    # Salvando os resultados de avaliação em um arquivo txt
+    results_dir = Path(config['paths']['results']).resolve()
+    # Criar o diretório para salvar os resultados de avaliação, se não existir
+    results_dir.mkdir(parents=True, exist_ok=True)
+    # Salvar as métricas, o relatório de classificação, a matriz de confusão e os dados da curva ROC em um arquivo txt
+    with open(results_dir / 'evaluation_results.txt', 'w') as f:
+        f.write('MODEL EVALUATION RESULTS\n')
+        f.write('=' * 50 + '\n\n')
+        f.write(f'Accuracy: {metrics["accuracy"]}\n')
+        f.write(f'Precision: {metrics["precision"]}\n')
+        f.write(f'Recall: {metrics["recall"]}\n')
+        f.write(f'F1 Score: {metrics["f1_score"]}\n')
+        f.write(f'ROC AUC: {roc_auc}\n')
+        f.write('\n' + '=' * 50 + '\n')
+        f.write('CLASSIFICATION REPORT\n')
+        f.write('=' * 50 + '\n')
+        f.write(classification_rep)
+        f.write('\n' + '=' * 50 + '\n')
+        f.write('Confusion Matrix\n')
+        f.write('=' * 50 + '\n')
+        f.write(str(cm))
+        f.write('\n' + '=' * 50 + '\n')
+        f.write('ROC Curve Data (fpr, tpr, thresholds)\n')
+        f.write('=' * 50 + '\n')
+        f.write(str(roc_curve_data))
+        f.write('\n' + '=' * 50 + '\n')
+    print(f'Evaluation results saved to: {results_dir / "evaluation_results.txt"}')
 
     # Salvar o modelo treinado usando joblib
     dump(value=pipe, filename=exported / 'model.joblib')
