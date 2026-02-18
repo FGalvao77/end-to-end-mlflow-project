@@ -1,0 +1,14 @@
+artifact_uri: file:///home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlruns/artifacts/382a3eaf4c654fe68fc599f107a92c2e/artifacts
+end_time: 1771449977440
+entry_point_name: ''
+experiment_id: '655234662824914477'
+lifecycle_stage: active
+run_id: 382a3eaf4c654fe68fc599f107a92c2e
+run_name: train
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1771449956296
+status: 3
+tags: []
+user_id: fernandogalvao

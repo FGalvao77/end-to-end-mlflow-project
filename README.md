@@ -120,15 +120,22 @@ environment:
 
 ```bash
 export DOCKER_API_VERSION=1.44
-docker compose -f docker-compose.mlflow.yml up -d
+docker compose -f src/mlops_project/docker-compose.mlflow.yml up -d
 ```
 
-The UI will be available at `http://127.0.0.1:5000` unless you override the
-port.  You can also point the code at a remote tracking server by setting
-`MLFLOW_TRACKING_URI` in your environment, e.g.: 
+The UI will be available at **`http://127.0.0.1:5000`** (NOT `http://0.0.0.0:5000` 
+which doesn't work in browsers). You can also point the code at a remote 
+tracking server by setting `MLFLOW_TRACKING_URI` in your environment:
 
 ```bash
-export MLFLOW_TRACKING_URI=http://localhost:5000
+# Access MLflow UI in browser:
+http://127.0.0.1:5000        # ✓ Localhost (recommended)
+http://localhost:5000        # ✓ Hostname alias
+
+# Point training code to MLflow server:
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000  # From host
+# OR inside container:
+export MLFLOW_TRACKING_URI=http://mlflow:5000     # Docker network
 ```
 
 If you prefer to use the standalone server or view experiments through the
@@ -165,6 +172,56 @@ itself will not abort just because of MLflow issues.
 > **Tip:** you can inspect the output for messages prefixed with ``WARNING:``
 > to understand why MLflow logging may have failed; these will not stop the
 > pipeline from producing artifacts in the `artifacts/` folder.
+
+### Running Training with Remote MLflow Server
+
+When you run training against a **remote MLflow server** (HTTP), you may encounter
+a `Permission denied: '/mlruns'` error. This happens because:
+
+1. The client (training script running on the **host**) tries to write artifacts directly to paths like `/mlruns`
+2. The MLflow server runs in a **Docker container** and `/mlruns` is a container-internal path
+3. The host OS cannot access container-internal paths
+
+#### Solution 1: Run training INSIDE the Docker container (Recommended)
+
+Run training from within the container where paths are consistent:
+
+```bash
+# Start the MLflow server first
+export DOCKER_API_VERSION=1.44
+docker compose -f src/mlops_project/docker-compose.mlflow.yml up -d mlflow
+
+# Wait for server to be ready (30-40 seconds) then run training inside container
+docker compose -f src/mlops_project/docker-compose.mlflow.yml exec training python train.py
+```
+
+#### Solution 2: Use file-based tracking (No server required)
+
+Simply don't set `MLFLOW_TRACKING_URI` - the script defaults to a local file store:
+
+```bash
+# Just run training without server
+.venv/bin/python src/mlops_project/train.py
+
+# View experiments in the UI
+mlflow ui
+```
+
+#### Solution 3: Configure S3-compatible artifact store (Production)
+
+For production, use a cloud artifact store (S3, MinIO, etc.) instead of file system:
+
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export MLFLOW_DEFAULT_ARTIFACT_ROOT=s3://my-bucket/mlflow-artifacts
+
+# Or for MinIO (S3-compatible):
+export MLFLOW_ARTIFACT_ROOT_BUCKET=mlflow
+export AWS_ACCESS_KEY_ID=minioadmin
+export AWS_SECRET_ACCESS_KEY=minioadmin
+
+.venv/bin/python src/mlops_project/train.py
+```
 
 ---
 

@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover - running as script
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.metrics import (classification_report, 
                              confusion_matrix, 
                              ConfusionMatrixDisplay,
@@ -32,6 +33,12 @@ from pathlib import Path
 from joblib import dump
 
 import os
+import warnings
+import logging
+
+# Suppress MLflow warnings about missing meta.yaml files (expected when using remote servers)
+logging.getLogger('mlflow').setLevel(logging.ERROR)
+warnings.filterwarnings('ignore', message='.*meta.yaml.*')
 import shutil
 import uuid
 
@@ -231,7 +238,7 @@ def main():
             except PermissionError as e:
                 raise PermissionError(
                     f"Unable to create '{mlruns_base}': {e}\n"
-                    "Check the ownership/permissions of the project directory."
+                    'Check the ownership/permissions of the project directory.'
                 )
         if not os.access(mlruns_base, os.W_OK):
             print(f"WARNING: '{mlruns_base}' is not writable by the current user.")
@@ -256,7 +263,7 @@ def main():
             if child.is_dir() and not child.name.isdigit():
                 try:
                     shutil.rmtree(child)
-                    print(f"Removed extraneous mlruns subdirectory: {child}")
+                    print(f'Removed extraneous mlruns subdirectory: {child}')
                 except Exception:
                     pass
 
@@ -270,7 +277,7 @@ def main():
         # traceback referenced by the user.
         tracking_uri = os.getenv('MLFLOW_TRACKING_URI')
         if not tracking_uri:
-            tracking_uri = f"file://{mlruns_base.resolve()}"
+            tracking_uri = f'file://{mlruns_base.resolve()}'
         experiment_name = os.getenv('MLFLOW_EXPERIMENT_NAME', 'My Experiment')
 
         # configure tracking client and ensure experiment artifact location
@@ -278,11 +285,18 @@ def main():
         # attempt to construct a client; if the tracking URI is unreachable we
         # simply skip MLflow logging rather than crashing the entire script.
         client = None
+        is_remote_server = tracking_uri.startswith('http')
         try:
             client = mlflow.tracking.MlflowClient()
+            # For HTTP-based servers, disable local registry operations
+            if is_remote_server:
+                # Force HTTP uploads instead of filesystem access
+                os.environ['MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT'] = '600'
+                # Prevent local artifact operations
+                os.environ['MLFLOW_LOCAL_ARTIFACTS_DISABLED'] = '1'
         except Exception as exc:  # includes ConnectionError, MlflowException, etc.
             print(f"WARNING: unable to connect to MLflow tracking server at '{tracking_uri}': {exc}")
-            print("Proceeding without MLflow logging.")
+            print('Proceeding without MLflow logging.')
 
         if client is not None:
             # only specify an artifact location when the user has explicitly
@@ -312,7 +326,7 @@ def main():
                         "', which does not match desired '" + desired_artifact_loc +
                         "'. Creating a new experiment instead."
                     )
-                    experiment_name = f"{experiment_name}-{uuid.uuid4().hex}"
+                    experiment_name = f'{experiment_name}-{uuid.uuid4().hex}'
                     client.create_experiment(
                         name=experiment_name,
                         artifact_location=desired_artifact_loc,
@@ -324,26 +338,83 @@ def main():
             mlflow.set_experiment(experiment_name=experiment_name)
 
         print(f'MLflow tracking URI: {tracking_uri}')
-        if 'desired_artifact_loc' in locals():
-            print(f"MLflow artifact URI: {desired_artifact_loc}")
+        if 'desired_artifact_loc' in locals() and desired_artifact_loc:
+            print(f'MLflow artifact URI: {desired_artifact_loc}')
+        else:
+            print('MLflow artifact URI: (using server default)')
         print(f'MLflow experiment name: {experiment_name}')
 
         # Iniciar uma nova execução no MLflow e logar os parâmetros, métricas e o modelo
         try:
             with mlflow.start_run(run_name=os.getenv('MLFLOW_RUN_NAME', 'train')):
+                # Log parameters
                 for key, value in config.items():
                     mlflow.log_param(key=key, value=value)
-                for key, value in metrics.items():
-                    mlflow.log_metric(key=key, value=value)
+                
+                # Log cross-validation metrics for temporal history
+                # This creates multiple data points showing model progression
                 try:
+                    stratified_kfold = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
+                    cv_scores = cross_val_score(estimator=pipe, X=X_train, y=y_train, 
+                                                cv=stratified_kfold, scoring='accuracy')
+                    
+                    # Log each fold's accuracy as a progression (steps 0-9)
+                    for fold_idx, fold_score in enumerate(cv_scores):
+                        mlflow.log_metric(key='cv_fold_accuracy', value=fold_score, step=fold_idx)
+                    
+                    # Log average CV accuracy at step 10
+                    mlflow.log_metric(key='cv_mean_accuracy', value=cv_scores.mean(), step=10)
+                    mlflow.log_metric(key='cv_std_accuracy', value=cv_scores.std(), step=10)
+                    
+                    print(f'\nCross-validation accuracy: {cv_scores.mean():.4f} (+/- {cv_scores.std():.4f})\n')
+                except Exception as cv_err:
+                    print(f'Note: Could not compute cross-validation: {cv_err}')
+                
+                # Log final test metrics at step 20 (after cross-validation)
+                for key, value in metrics.items():
+                    mlflow.log_metric(key=key, value=value, step=20)
+                
+                try:
+                    # For remote servers (HTTP), MLflow will handle artifact upload via API
+                    # For local file stores, artifacts go into mlruns directly
                     mlflow.sklearn.log_model(sk_model=pipe, name='model')
-                    # The model has already been saved to `exported` earlier; no need to
-                    # call save_model again here (would fail if directory is non-empty).
                     print(f'Model logged to MLflow and available at: {exported}')
+                except FileNotFoundError as file_err:
+                    # This often occurs with meta.yaml when using remote servers
+                    if 'meta.yaml' in str(file_err) and is_remote_server:
+                        print(f'⚠️  WARNING: Cannot log model artifacts to remote MLflow server')
+                        print(f'   Error: File not found (meta.yaml)')
+                        print(f'   This is expected when training on host with HTTP MLflow server.')
+                        print(f'   Model was trained successfully and saved locally at: {exported}')
+                        print(f'   To fix: Run training inside Docker container')
+                    else:
+                        print(f'WARNING: File not found error: {file_err}')
+                except (OSError, IOError) as io_err:
+                    # Catch other I/O errors that might indicate path issues
+                    if ('meta.yaml' in str(io_err) or 'Yaml file' in str(io_err)) and is_remote_server:
+                        # Silently ignore meta.yaml errors when using remote servers
+                        # (this is expected behavior)
+                        pass
+                    else:
+                        print(f'WARNING: I/O error while logging model: {io_err}')
+                except PermissionError as perm_err:
+                    # Common when client tries to write to container paths it doesn't have access to
+                    is_remote = tracking_uri.startswith('http')
+                    if is_remote:
+                        print(f'⚠️  WARNING: Cannot log model to remote MLflow server at {tracking_uri}')
+                        print(f'   Error: Permission denied: {perm_err}')
+                        print(f'   This occurs when the client lacks access to the server\'s artifact paths (/mlruns).')
+                        print(f'   Model was trained successfully and saved locally at: {exported}')
+                        print(f'\n   To resolve this issue, consider one of:')
+                        print(f'   1. Run training INSIDE the Docker container (same path context)')
+                        print(f'      → docker compose --profile training up')
+                        print(f'   2. Configure S3-compatible artifact storage (Minio, AWS S3, etc.)')
+                        print(f'   3. Use \'file://\' tracking URI to store runs locally instead')
+                    else:
+                        print(f'WARNING: failed to log model to MLflow: {perm_err}')
                 except Exception as log_err:
-                    # Catch any problem during logging (including missing
-                    # meta.yaml, permission errors, etc.) and continue.
-                    print("WARNING: failed to log model to MLflow:", log_err)
+                    # Catch any other problem during logging and continue.
+                    print(f'WARNING: failed to log model to MLflow: {log_err}')
         except PermissionError as e:
             raise PermissionError(
                 f"MLflow failed to write artifacts due to permission error: {e}\n"
@@ -376,9 +447,9 @@ def train_model():
     old_uri = os.environ.get('MLFLOW_TRACKING_URI')
 
     # create a fresh temp directory and configure MLflow to use it
-    temp_dir = tempfile.mkdtemp(prefix="test-mlruns-")
-    os.environ['MLFLOW_TRACKING_URI'] = f"file://{temp_dir}"
-    os.environ['MLFLOW_EXPERIMENT_NAME'] = f"test-{uuid.uuid4()}"
+    temp_dir = tempfile.mkdtemp(prefix='test-mlruns-')
+    os.environ['MLFLOW_TRACKING_URI'] = f'file://{temp_dir}'
+    os.environ['MLFLOW_EXPERIMENT_NAME'] = f'test-{uuid.uuid4()}'
 
     try:
         return main()

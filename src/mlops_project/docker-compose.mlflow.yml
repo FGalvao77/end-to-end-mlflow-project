@@ -2,21 +2,56 @@ version: '3.8'  # Define a versão do Docker Compose
 
 services:
   mlflow:
-    image: ghcr.io/mlflow/mlflow:latest  # Nome da imagem do Docker para o MLflow
-    build: .  # Caminho para o Dockerfile (assumindo que está no mesmo diretório)
-    container_name: mlflow_container  # Nome do container para facilitar a identificação
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: mlflow_container
     ports:
-      - "5000:5000" # Mapeia a porta 5000 do PC para a 5000 do container
+      - "5000:5000"
     volumes:
-      # montamos o diretório de mlruns no mesmo caminho absoluto dentro e fora
-      # do container; assim o servidor e o cliente veem idêntico
-      - ./mlruns:/home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlops_project/mlruns
+      # map host ./mlruns to a simple path inside the container
+      # with rw permissions to ensure the server can write artifacts
+      - ./mlruns:/mlruns:rw
+      # Also mount the entire project so training can run inside container
+      - .:/workspace:rw
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
-      - MLFLOW_BACKEND_STORE_URI=sqlite:///home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlops_project/mlruns/mlflow.db
-      - MLFLOW_DEFAULT_ARTIFACT_ROOT=file:///home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlops_project/mlruns/artifacts
-    # start using environment variables so path changes propagate
+      # inside the container use absolute paths under /mlruns; note the
+      # four slashes for sqlite absolute URIs
+      - MLFLOW_BACKEND_STORE_URI=sqlite:////mlruns/mlflow.db
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=file:///mlruns/artifacts
+      # Improve artifact upload handling
+      - MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT=600
+    # use env vars in the command so users can override easily
     command: >
       sh -c "mlflow server --host 0.0.0.0 --port 5000 \
       --backend-store-uri $${MLFLOW_BACKEND_STORE_URI} \
       --default-artifact-root $${MLFLOW_DEFAULT_ARTIFACT_ROOT}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Training service that runs inside container with same path context as MLflow
+  # Use: docker compose exec training python train.py
+  training:
+    image: python:3.13-slim
+    container_name: training_container
+    working_dir: /workspace
+    volumes:
+      - .:/workspace:rw
+      - ./mlruns:/mlruns:rw
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_EXPERIMENT_NAME=Docker-Training
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    entrypoint: /bin/bash -c
+    command:
+      - |
+        pip install -q -r src/mlops_project/requirements.txt 2>/dev/null && \
+        cd src/mlops_project && \
+        python train.py
+    profiles: ["training"]  # Only run with: docker compose --profile training up

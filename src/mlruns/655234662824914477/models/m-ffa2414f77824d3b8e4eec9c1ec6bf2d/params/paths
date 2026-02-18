@@ -1,0 +1,1 @@
+{'exported_model_dir': 'artifacts/model', 'plots': 'artifacts/plots', 'metrics': 'artifacts/metrics', 'params': 'artifacts/params', 'results': 'artifacts/results'}
