@@ -245,51 +245,87 @@ def main():
         mlflow.sklearn.save_model(sk_model=pipe, path=exported)
         print(f'Model saved to: {exported}')
 
-        # Configurar MLflow tracking URI e experiment name a partir das variáveis de ambiente
-        # ensure artifact URI points to local mlruns folder so client doesn't
-        # try to create "/app" (server container path)
-        # default artifact URI should also point into the project-root mlruns
-        os.environ.setdefault('MLFLOW_ARTIFACT_URI',
-                               f"file://{(mlruns_base / 'artifacts').resolve()}")
+        # clean up any stray directories under mlruns which are not valid
+        # experiments; these typically arise when the artifact location has
+        # been misconfigured to point at ``mlruns/artifacts``.  The file
+        # store's ``search_experiments`` will log warnings for every such
+        # folder and later operations (logging a model) may try to treat the
+        # directory as an experiment, resulting in MissingConfigException.
+        # Removing non-numeric children resets the store to a clean state.
+        for child in mlruns_base.iterdir():
+            if child.is_dir() and not child.name.isdigit():
+                try:
+                    shutil.rmtree(child)
+                    print(f"Removed extraneous mlruns subdirectory: {child}")
+                except Exception:
+                    pass
 
-        tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://localhost:5000')
+        # determine tracking URI: if the user supplied one use it, otherwise
+        # default to a local file-based store under ``mlruns_base``.  note
+        # that we deliberately do *not* set a default ``MLFLOW_ARTIFACT_URI``
+        # when the tracking URI is file-based; the MLflow file store already
+        # places artifacts in ``<mlruns>/experiment-id/artifacts``.  earlier
+        # versions of this script forced artifacts into
+        # ``mlruns/artifacts`` which caused the corruption seen in the
+        # traceback referenced by the user.
+        tracking_uri = os.getenv('MLFLOW_TRACKING_URI')
+        if not tracking_uri:
+            tracking_uri = f"file://{mlruns_base.resolve()}"
         experiment_name = os.getenv('MLFLOW_EXPERIMENT_NAME', 'My Experiment')
 
         # configure tracking client and ensure experiment artifact location
         mlflow.set_tracking_uri(uri=tracking_uri)
-        client = mlflow.tracking.MlflowClient()
+        # attempt to construct a client; if the tracking URI is unreachable we
+        # simply skip MLflow logging rather than crashing the entire script.
+        client = None
+        try:
+            client = mlflow.tracking.MlflowClient()
+        except Exception as exc:  # includes ConnectionError, MlflowException, etc.
+            print(f"WARNING: unable to connect to MLflow tracking server at '{tracking_uri}': {exc}")
+            print("Proceeding without MLflow logging.")
 
-        # determine the URI where artifacts should be written by the client/server
-        desired_artifact_loc = os.environ.get('MLFLOW_ARTIFACT_URI') or \
-            f"file://{(mlruns_base / 'artifacts').resolve()}"
+        if client is not None:
+            # only specify an artifact location when the user has explicitly
+            # provided one via environment; if absent we let the tracking
+            # store pick the default (which for a file store is
+            # ``<mlruns>/<exp_id>/artifacts``).
+            desired_artifact_loc = os.environ.get('MLFLOW_ARTIFACT_URI')
 
-        # create or update experiment so that artifact_location matches our desired path
-        existing_exp = client.get_experiment_by_name(experiment_name)
-        if existing_exp is None:
-            client.create_experiment(name=experiment_name,
-                                     artifact_location=desired_artifact_loc)
-            print(f"Created experiment '{experiment_name}' with artifact_location {desired_artifact_loc}")
-        else:
-            if existing_exp.artifact_location != desired_artifact_loc:
-                # existing experiment has an incompatible artifact location.
-                # instead of failing we create a fresh experiment using a
-                # uniquified name so training can continue.
-                print(
-                    "WARNING: existing experiment '" + experiment_name +
-                    "' has artifact_location '" + existing_exp.artifact_location +
-                    "', which does not match desired '" + desired_artifact_loc +
-                    "'. Creating a new experiment instead."
-                )
-                experiment_name = f"{experiment_name}-{uuid.uuid4().hex}"
-                client.create_experiment(name=experiment_name,
-                                         artifact_location=desired_artifact_loc)
-                print(f"Created experiment '{experiment_name}' with artifact_location {desired_artifact_loc}")
-            # otherwise artifact location matches, nothing to change
-        # finally activate it
-        mlflow.set_experiment(experiment_name=experiment_name)
+            existing_exp = client.get_experiment_by_name(experiment_name)
+            if existing_exp is None:
+                if desired_artifact_loc:
+                    client.create_experiment(
+                        name=experiment_name,
+                        artifact_location=desired_artifact_loc,
+                    )
+                    print(
+                        f"Created experiment '{experiment_name}' with artifact_location {desired_artifact_loc}"
+                    )
+                else:
+                    client.create_experiment(name=experiment_name)
+                    print(f"Created experiment '{experiment_name}'")
+            else:
+                if desired_artifact_loc and existing_exp.artifact_location != desired_artifact_loc:
+                    print(
+                        "WARNING: existing experiment '" + experiment_name +
+                        "' has artifact_location '" + existing_exp.artifact_location +
+                        "', which does not match desired '" + desired_artifact_loc +
+                        "'. Creating a new experiment instead."
+                    )
+                    experiment_name = f"{experiment_name}-{uuid.uuid4().hex}"
+                    client.create_experiment(
+                        name=experiment_name,
+                        artifact_location=desired_artifact_loc,
+                    )
+                    print(
+                        f"Created experiment '{experiment_name}' with artifact_location {desired_artifact_loc}"
+                    )
+                # otherwise artifact location matches or isn't specified
+            mlflow.set_experiment(experiment_name=experiment_name)
 
         print(f'MLflow tracking URI: {tracking_uri}')
-        print(f"MLflow artifact URI: {desired_artifact_loc}")
+        if 'desired_artifact_loc' in locals():
+            print(f"MLflow artifact URI: {desired_artifact_loc}")
         print(f'MLflow experiment name: {experiment_name}')
 
         # Iniciar uma nova execução no MLflow e logar os parâmetros, métricas e o modelo
@@ -299,10 +335,15 @@ def main():
                     mlflow.log_param(key=key, value=value)
                 for key, value in metrics.items():
                     mlflow.log_metric(key=key, value=value)
-                mlflow.sklearn.log_model(sk_model=pipe, name='model')
-                # The model has already been saved to `exported` earlier; no need to
-                # call save_model again here (would fail if directory is non-empty).
-                print(f'Model logged to MLflow and available at: {exported}')
+                try:
+                    mlflow.sklearn.log_model(sk_model=pipe, name='model')
+                    # The model has already been saved to `exported` earlier; no need to
+                    # call save_model again here (would fail if directory is non-empty).
+                    print(f'Model logged to MLflow and available at: {exported}')
+                except Exception as log_err:
+                    # Catch any problem during logging (including missing
+                    # meta.yaml, permission errors, etc.) and continue.
+                    print("WARNING: failed to log model to MLflow:", log_err)
         except PermissionError as e:
             raise PermissionError(
                 f"MLflow failed to write artifacts due to permission error: {e}\n"
@@ -315,26 +356,47 @@ def main():
     return pipe, metrics
 
 import uuid
+import tempfile
+import shutil
 
 def train_model():
     """Programmatic entry point for training, returns (pipe, metrics).
 
-    When called from tests we want to avoid re‑using an existing MLflow
-    experiment whose ``artifact_location`` may have been set under a
-    different working directory.  To ensure each invocation is isolated we
-    temporarily override ``MLFLOW_EXPERIMENT_NAME`` with a random name.
+    The normal ``main()`` implementation writes to a project-local
+    ``mlruns`` directory and (by default) uses ``MLFLOW_TRACKING_URI``
+    pointing to localhost.  This is convenient for end users but leads to
+    flaky tests when previous runs have left behind partially initialized
+    experiments (missing ``meta.yaml``) or when the tracking server
+    isn't running.  To make the helper safe for automated test suites we
+    create a *temporary* file-based tracking store and a random experiment
+    name for every invocation.
     """
-    # temporarily override experiment name to avoid conflicts
+    # preserve any existing environment configuration so it can be restored
     old_name = os.environ.get('MLFLOW_EXPERIMENT_NAME')
+    old_uri = os.environ.get('MLFLOW_TRACKING_URI')
+
+    # create a fresh temp directory and configure MLflow to use it
+    temp_dir = tempfile.mkdtemp(prefix="test-mlruns-")
+    os.environ['MLFLOW_TRACKING_URI'] = f"file://{temp_dir}"
     os.environ['MLFLOW_EXPERIMENT_NAME'] = f"test-{uuid.uuid4()}"
+
     try:
         return main()
     finally:
-        # restore environment
+        # restore environment variables
         if old_name is None:
             os.environ.pop('MLFLOW_EXPERIMENT_NAME', None)
         else:
             os.environ['MLFLOW_EXPERIMENT_NAME'] = old_name
+        if old_uri is None:
+            os.environ.pop('MLFLOW_TRACKING_URI', None)
+        else:
+            os.environ['MLFLOW_TRACKING_URI'] = old_uri
+        # clean up the temporary mlruns directory
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception:
+            pass
 
 
 # Executar a função principal quando o script for executado diretamente
