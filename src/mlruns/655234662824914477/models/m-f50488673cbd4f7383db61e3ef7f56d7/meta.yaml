@@ -1,0 +1,11 @@
+artifact_location: file:///home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlruns/artifacts/models/m-f50488673cbd4f7383db61e3ef7f56d7/artifacts
+creation_timestamp: 1771443289936
+experiment_id: '655234662824914477'
+last_updated_timestamp: 1771443289936
+lifecycle_stage: active
+model_id: m-f50488673cbd4f7383db61e3ef7f56d7
+model_type: null
+name: model
+source_run_id: b863fd8ea6684716ac37cb1132f8db6e
+status: 1
+status_message: null
