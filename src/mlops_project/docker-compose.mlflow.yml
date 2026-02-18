@@ -1,0 +1,22 @@
+version: '3.8'  # Define a versão do Docker Compose
+
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest  # Nome da imagem do Docker para o MLflow
+    build: .  # Caminho para o Dockerfile (assumindo que está no mesmo diretório)
+    container_name: mlflow_container  # Nome do container para facilitar a identificação
+    ports:
+      - "5000:5000" # Mapeia a porta 5000 do PC para a 5000 do container
+    volumes:
+      # montamos o diretório de mlruns no mesmo caminho absoluto dentro e fora
+      # do container; assim o servidor e o cliente veem idêntico
+      - ./mlruns:/home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlops_project/mlruns
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_BACKEND_STORE_URI=sqlite:///home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlops_project/mlruns/mlflow.db
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=file:///home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlops_project/mlruns/artifacts
+    # start using environment variables so path changes propagate
+    command: >
+      sh -c "mlflow server --host 0.0.0.0 --port 5000 \
+      --backend-store-uri $${MLFLOW_BACKEND_STORE_URI} \
+      --default-artifact-root $${MLFLOW_DEFAULT_ARTIFACT_ROOT}"

@@ -3,8 +3,14 @@
 # Description: Script de treinamento do modelo de classificação utilizando Random Forest. O script inclui etapas de pré-processamento, treinamento, avaliação e salvamento do modelo, métricas e visualizações. O código é modularizado para facilitar a manutenção e a integração com pipelines de MLOps.
 
 # Importações necessárias para o script
-from load_prepare_data import load_data, prepare_data
-from utils import load_config
+# attempt package-relative import; fall back to plain import if the module is
+# executed as a standalone script (which places the parent directory on sys.path)
+try:
+    from .load_prepare_data import load_data, prepare_data
+    from .utils import load_config
+except ImportError:  # pragma: no cover - running as script
+    from load_prepare_data import load_data, prepare_data
+    from utils import load_config
 
 # Bibliotecas para modelagem, avaliação e visualização
 from sklearn.pipeline import Pipeline
@@ -27,6 +33,7 @@ from joblib import dump
 
 import os
 import shutil
+import uuid
 
 # Ignorar warnings de FutureWarning para evitar poluição do output
 import warnings
@@ -209,6 +216,27 @@ def main():
 
     # Salvar o modelo usando MLflow, se disponível
     if USE_MLFLOW:
+        # ensure the 'mlruns' directory exists and is writable by us; the
+        # container may have created it as root which causes PermissionErrors
+        # later when mlflow tries to create subfolders.  We also print a
+        # helpful message so the user can fix things manually if needed.
+        # ensure mlruns folder is always created at the project root (one
+        # level above the package directory) so that repeated invocations
+        # from different working directories don't confuse MLflow about the
+        # artifact location.
+        mlruns_base = Path(__file__).parent.parent / 'mlruns'
+        if not mlruns_base.exists():
+            try:
+                mlruns_base.mkdir(parents=True, exist_ok=True)
+            except PermissionError as e:
+                raise PermissionError(
+                    f"Unable to create '{mlruns_base}': {e}\n"
+                    "Check the ownership/permissions of the project directory."
+                )
+        if not os.access(mlruns_base, os.W_OK):
+            print(f"WARNING: '{mlruns_base}' is not writable by the current user.")
+            print("Please run something like:\n  sudo chown -R $(id -u):$(id -g) {mlruns_base}\n")
+
         # Limpar o diretório antes do MLflow salvar (MLflow exige diretório vazio)
         if exported.exists():
             shutil.rmtree(exported)
@@ -218,25 +246,96 @@ def main():
         print(f'Model saved to: {exported}')
 
         # Configurar MLflow tracking URI e experiment name a partir das variáveis de ambiente
-        if (os.getenv(key='MLFLOW_TRACKING_URI') is not None) and (os.getenv(key='MLFLOW_EXPERIMENT_NAME') is not None):
-            mlflow.set_tracking_uri(uri=os.getenv(key='MLFLOW_TRACKING_URI'))
-            mlflow.set_experiment(experiment_name=os.getenv(key='MLFLOW_EXPERIMENT_NAME'))
-            print(f'MLflow tracking URI: {os.getenv(key="MLFLOW_TRACKING_URI")}')
-            print(f'MLflow experiment name: {os.getenv("MLFLOW_EXPERIMENT_NAME")}')
+        # ensure artifact URI points to local mlruns folder so client doesn't
+        # try to create "/app" (server container path)
+        # default artifact URI should also point into the project-root mlruns
+        os.environ.setdefault('MLFLOW_ARTIFACT_URI',
+                               f"file://{(mlruns_base / 'artifacts').resolve()}")
 
-            # Iniciar uma nova execução no MLflow e logar os parâmetros, métricas e o modelo
+        tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://localhost:5000')
+        experiment_name = os.getenv('MLFLOW_EXPERIMENT_NAME', 'My Experiment')
+
+        # configure tracking client and ensure experiment artifact location
+        mlflow.set_tracking_uri(uri=tracking_uri)
+        client = mlflow.tracking.MlflowClient()
+
+        # determine the URI where artifacts should be written by the client/server
+        desired_artifact_loc = os.environ.get('MLFLOW_ARTIFACT_URI') or \
+            f"file://{(mlruns_base / 'artifacts').resolve()}"
+
+        # create or update experiment so that artifact_location matches our desired path
+        existing_exp = client.get_experiment_by_name(experiment_name)
+        if existing_exp is None:
+            client.create_experiment(name=experiment_name,
+                                     artifact_location=desired_artifact_loc)
+            print(f"Created experiment '{experiment_name}' with artifact_location {desired_artifact_loc}")
+        else:
+            if existing_exp.artifact_location != desired_artifact_loc:
+                # existing experiment has an incompatible artifact location.
+                # instead of failing we create a fresh experiment using a
+                # uniquified name so training can continue.
+                print(
+                    "WARNING: existing experiment '" + experiment_name +
+                    "' has artifact_location '" + existing_exp.artifact_location +
+                    "', which does not match desired '" + desired_artifact_loc +
+                    "'. Creating a new experiment instead."
+                )
+                experiment_name = f"{experiment_name}-{uuid.uuid4().hex}"
+                client.create_experiment(name=experiment_name,
+                                         artifact_location=desired_artifact_loc)
+                print(f"Created experiment '{experiment_name}' with artifact_location {desired_artifact_loc}")
+            # otherwise artifact location matches, nothing to change
+        # finally activate it
+        mlflow.set_experiment(experiment_name=experiment_name)
+
+        print(f'MLflow tracking URI: {tracking_uri}')
+        print(f"MLflow artifact URI: {desired_artifact_loc}")
+        print(f'MLflow experiment name: {experiment_name}')
+
+        # Iniciar uma nova execução no MLflow e logar os parâmetros, métricas e o modelo
+        try:
             with mlflow.start_run(run_name=os.getenv('MLFLOW_RUN_NAME', 'train')):
                 for key, value in config.items():
                     mlflow.log_param(key=key, value=value)
                 for key, value in metrics.items():
                     mlflow.log_metric(key=key, value=value)
-                mlflow.sklearn.log_model(sk_model=pipe, artifact_path='model')
-                mlflow.sklearn.save_model(sk_model=pipe, path=exported / 'model.pkl')
-                print(f'Model saved to: {exported / "model.pkl"}')
-        else:
-            print('MLflow tracking URI or experiment name not set. Skipping MLflow logging.') 
+                mlflow.sklearn.log_model(sk_model=pipe, name='model')
+                # The model has already been saved to `exported` earlier; no need to
+                # call save_model again here (would fail if directory is non-empty).
+                print(f'Model logged to MLflow and available at: {exported}')
+        except PermissionError as e:
+            raise PermissionError(
+                f"MLflow failed to write artifacts due to permission error: {e}\n"
+                "Please ensure the 'mlruns' directory is owned by your user.\n"
+                "For example: sudo chown -R $(id -u):$(id -g) mlruns"
+            )
     else:
         print('MLflow is not installed. Skipping MLflow logging.')
+# return pipeline and metrics so callers can inspect results
+    return pipe, metrics
+
+import uuid
+
+def train_model():
+    """Programmatic entry point for training, returns (pipe, metrics).
+
+    When called from tests we want to avoid re‑using an existing MLflow
+    experiment whose ``artifact_location`` may have been set under a
+    different working directory.  To ensure each invocation is isolated we
+    temporarily override ``MLFLOW_EXPERIMENT_NAME`` with a random name.
+    """
+    # temporarily override experiment name to avoid conflicts
+    old_name = os.environ.get('MLFLOW_EXPERIMENT_NAME')
+    os.environ['MLFLOW_EXPERIMENT_NAME'] = f"test-{uuid.uuid4()}"
+    try:
+        return main()
+    finally:
+        # restore environment
+        if old_name is None:
+            os.environ.pop('MLFLOW_EXPERIMENT_NAME', None)
+        else:
+            os.environ['MLFLOW_EXPERIMENT_NAME'] = old_name
+
 
 # Executar a função principal quando o script for executado diretamente
 if __name__ == '__main__':
