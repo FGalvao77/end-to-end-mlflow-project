@@ -67,9 +67,9 @@ Exemplo / Example:
 import mlflow
 
 with mlflow.start_run():
-    mlflow.log_param("model_type", "RandomForest")
-    mlflow.log_metric("accuracy", 0.92)
-    mlflow.sklearn.log_model(model, "model")
+    mlflow.log_param('model_type', 'RandomForest')
+    mlflow.log_metric('accuracy', 0.92)
+    mlflow.sklearn.log_model(model, 'model')
 ```
 
 ---
@@ -78,6 +78,11 @@ with mlflow.start_run():
 
 ### Instalação / Installation
 ```bash
+# create a Python virtual environment and activate it
+python -m venv .venv
+source .venv/bin/activate
+
+# clone repository and install dependencies
 git clone https://github.com/FGalvao77/end-to-end-mlflow-project.git
 cd end-to-end-mlflow-project
 pip install -r requirements.txt
@@ -108,6 +113,23 @@ By default the training script uses a **file-based tracking store** located
 inside the project (`mlruns/`).  This means you can run the pipeline without
 having an MLflow server running and you won't see any connection errors
 (see `src/mlops_project/train.py` for details).
+
+If you prefer to run an MLflow server inside Docker you can use the
+provided compose file.  Start it after you have activated your virtual
+environment:
+
+```bash
+export DOCKER_API_VERSION=1.44
+docker compose -f docker-compose.mlflow.yml up -d
+```
+
+The UI will be available at `http://127.0.0.1:5000` unless you override the
+port.  You can also point the code at a remote tracking server by setting
+`MLFLOW_TRACKING_URI` in your environment, e.g.: 
+
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:5000
+```
 
 If you prefer to use the standalone server or view experiments through the
 web UI, start it in the project root before running `train.py`:

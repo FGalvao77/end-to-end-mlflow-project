@@ -1,4 +1,4 @@
-artifact_path: file:///home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlruns/artifacts/models/m-fd47304b87714cebae643624f5350c54/artifacts
+artifact_path: file:///home/fernandogalvao/Documentos/my-projects/end-to-end-mlflow-project/src/mlruns/artifacts/models/m-7cbafb170de94487a5b24c82082d55ee/artifacts
 flavors:
   python_function:
     env:
@@ -15,9 +15,9 @@ flavors:
     sklearn_version: 1.8.0
     skops_trusted_types: null
 mlflow_version: 3.9.0
-model_id: m-fd47304b87714cebae643624f5350c54
+model_id: m-7cbafb170de94487a5b24c82082d55ee
 model_size_bytes: 4693874
-model_uuid: m-fd47304b87714cebae643624f5350c54
+model_uuid: m-7cbafb170de94487a5b24c82082d55ee
 prompts: null
-run_id: 114e565f5edb455e9d5f38160cdecbfa
-utc_time_created: '2026-02-18 19:06:44.892038'
+run_id: 23ad52b45b5c4894a81d5fedfa3f9174
+utc_time_created: '2026-02-18 19:32:45.526222'
