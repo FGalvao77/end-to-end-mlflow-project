@@ -6,3 +6,4 @@ __pycache__/
 *.pyc
 
 # notebooks contain step-by-step walkthroughs and are committed
+minikube-linux-amd64
