@@ -46,7 +46,7 @@ curl -s http://127.0.0.1:8000/ping
 Or access the **Swagger UI** (interactive API docs):
 
 ```
-http://127.0.0.1:8000/docs
+http://172.0.0.1:8000/docs
 ```
 
 ---
@@ -72,24 +72,27 @@ kubectl logs -l app=mlflow-server --tail=100
 
 ---
 
-## ⚙️ System Prerequisites
+<h2> ⚙️ System Prerequisites</h2>
 
 ### Kubernetes & Minikube (required for deployment)
 
-Before running any `kubectl` commands, you need an active Kubernetes cluster. The simplest way is via **Minikube**.
+**⚠️ IMPORTANT:** Before running any `kubectl` commands or interacting with Kubernetes, you **must have Minikube installed and an active Kubernetes cluster**. Minikube is the simplest and recommended way for local development.
 
-#### Install Minikube
+<h4>Minikube Installation</h4>
+
+**Linux:**
+```bash
+# Download the Minikube binary
+curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+# Make it executable and move it to a location in your PATH
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+# Remove the downloaded file (optional)
+rm minikube-linux-amd64
+```
 
 **macOS:**
 ```bash
 brew install minikube
-mkdir -p ~/.minikube
-```
-
-**Linux:**
-```bash
-curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
-sudo install minikube-linux-amd64 /usr/local/bin/minikube
 ```
 
 **Windows:**
@@ -97,24 +100,25 @@ sudo install minikube-linux-amd64 /usr/local/bin/minikube
 choco install minikube
 # or manual download: https://github.com/kubernetes/minikube/releases
 ```
+**After installation, ensure Minikube is in your PATH and configured to use your preferred driver (docker, virtualbox, etc.).**
 
-#### Start Minikube
+<h4>Starting Minikube</h4>
 
 ```bash
-# Start cluster (may take a few minutes on first run)
-minikube start
+# Start the cluster (may take a few minutes on first run)
+minikube start --driver=docker # Or use your preferred driver, e.g., virtualbox, podman
 
-# Check status
+# Check status - MUST show 'host: Running, kubelet: Running, apiserver: Running'
 minikube status
 
-# Verify Kubernetes connectivity
+# Confirm Kubernetes connectivity - MUST list your nodes
 kubectl cluster-info
 kubectl get nodes
 ```
 
-When all statuses are `Running` or return information, Kubernetes is ready! ✅
+When all statuses are `Running` or return information, your Kubernetes environment is ready! ✅
 
-#### Stop/Reset Minikube
+<h4>Stop/Reset Minikube</h4>
 
 ```bash
 # Stop (preserves data)
@@ -127,7 +131,7 @@ minikube start  # starts new cluster
 
 ---
 
-## 0) Overview of What Already Exists
+<h2> 0) Overview of What Already Exists</h2>
 
 - **Training**: `train.py` trains a `RandomForest` inside a `Pipeline` with `StandardScaler`, computes metrics, saves artifacts in `artifacts/model` and (if available) logs to MLflow.  
 - **Config**: `configs.yaml` defines `test_size`, `random_state`, hyperparameters and export folder.  
@@ -138,7 +142,7 @@ minikube start  # starts new cluster
 
 ---
 
-## 1) Prepare Local Environment
+<h2> 1) Prepare Local Environment</h2>
 
 ```bash
 python -m venv .venv
@@ -173,7 +177,7 @@ curl -s http://127.0.0.1:8000/ping     # model server
 
 ---
 
-## 2) Inspect and Adjust `configs.yaml`
+<h2> 2) Inspect and Adjust `configs.yaml`</h2>
 
 Open `src/mlops_project/configs.yaml` and modify as needed (it comes with default values):  
 - `test_size`, `random_state`  
@@ -182,7 +186,7 @@ Open `src/mlops_project/configs.yaml` and modify as needed (it comes with defaul
 
 ---
 
-## 3) Run Training and Generate Artifacts
+<h2> 3) Run Training and Generate Artifacts</h2>
 
 The dataset comes from `load_breast_cancer(as_frame=True)` and the split is stratified.  
 
@@ -201,7 +205,7 @@ Execution flow:
 
 ---
 
-## 4) Start the MLflow Tracking Server
+<h2> 4) Start the MLflow Tracking Server</h2>
 
 Videos on installing Docker and Docker Compose:
 
@@ -221,7 +225,7 @@ docker compose -f src/mlops_project/docker-compose.mlflow.yml up -d
 eport DOCKER_API_VERSION=1.44
 docker compose -f src/mlops_project/docker-compose.mlflow.yml up -d mlflow
  
- # UI at http://localhost:5000
+ #UI at http://localhost:5000
 ```
 
 In the terminal where you will train, point the client to the server and (optionally) set the experiment name:
@@ -235,7 +239,7 @@ export MLFLOW_EXPERIMENT_NAME=Projeto10_MLOps
 
 ---
 
-## 5) Serve the Model Locally (MLflow Models Serve)
+<h2> 5) Serve the Model Locally (MLflow Models Serve)</h2>
 
 Since `train.py` saves an **MLflow Model** inside the export folder, you can serve it directly:
 
@@ -243,7 +247,7 @@ Since `train.py` saves an **MLflow Model** inside the export folder, you can ser
 mlflow models serve   -m artifacts/model   -p 8000 --host 0.0.0.0 --no-conda
 ```
 
-### Quick Tests
+<h3>Quick Tests</h3>
 
 ```bash
 # healthcheck (compatible with /ping in your manifest)
@@ -279,7 +283,7 @@ curl -X POST http://127.0.0.1:8000/invocations \
 
 ---
 
-## 6) Package the Application in Docker
+<h2> 6) Package the Application in Docker</h2>
 
 The image expected by your K8s `Deployment` is named **`projeto10-model:latest`** and exposes **port 8000** with a **`/ping`** endpoint.
 
@@ -300,8 +304,8 @@ curl -s http://127.0.0.1:8000/ping
 
 ---
 
-## 7) Deploy on Kubernetes
-### ⚠️ Prerequisite: Minikube must be running
+<h2> 7) Deploy on Kubernetes</h2>
+<h3>⚠️ Prerequisite: Minikube must be running</h3>
 
 Before executing the commands below, make sure Minikube is active:
 
@@ -315,7 +319,7 @@ If not, run:
 minikube start
 ```
 
-### Deploy
+<h3>Deploy</h3>
 Apply the manifests you already have:
 
 https://www.youtube.com/watch?v=mi_aotXDMR8 (how to install Kubernetes - kubectl)
@@ -333,7 +337,7 @@ kubectl logs -l app=mlflow-server --tail=100
 - **Deployment**: 2 replicas, `image: my-mlflow-app:latest`, health checks on `/health` port 5000.  
 - **Service**: type **NodePort**, exposing **30500** on the node.
 
-### Tests
+<h3>Tests</h3>
 
 ```bash
 # if NodePort and you're on the same node (minikube/kind):
@@ -352,235 +356,115 @@ curl -X POST http://127.0.0.1:8000/invocations \
 
 ---
 
-## 8) Monitoramento e Observabilidade / Monitoring & Observability
+<h2> 8) Monitoramento e Observabilidade / Monitoring & Observability</h2>
 
-**Versão em Português:**
+**⚠️ Prerequisite:** Ensure **Minikube is installed and a cluster is running** (see "System Prerequisites" section for instructions).
 
-Implante monitoramento e observabilidade abrangentes usando **Prometheus** e **Grafana** para rastrear o servidor MLflow e a infraestrutura de serving de modelos.
+This project includes a complete monitoring solution using **Prometheus** and **Grafana** for observability of MLflow and model serving infrastructure.
 
-### ⚠️ Pré-requisito: Minikube rodando
+<h3>Quick Start</h3>
 
-Os mesmos comandos acima.
+**1. Deploy Monitoring Stack:**
+    The `scripts/monitoring.sh` automates the deployment of all monitoring components into your Kubernetes cluster.
+    ```bash
+    # Make the script executable (if not already)
+    chmod +x scripts/monitoring.sh
 
-### 8.1) Deploy Prometheus & Grafana Stack
+    # Deploy the monitoring stack
+    ./scripts/monitoring.sh deploy
+    ```
+    This command will create a `mlflow-prod` namespace (if it doesn't exist) and apply the Kubernetes manifests for Prometheus and Grafana.
 
-```bash
-# Deploy Prometheus configuration and alert rules
-kubectl apply -f k8s/monitoring/prometheus-config.yaml
+**2. Set up Port-Forwarding for Local Access:**
+    To access Prometheus and Grafana from your local browser, you need to port-forward the Kubernetes services to your machine. The `monitoring.sh` script can do this for you:
+    ```bash
+    ./scripts/monitoring.sh port-forward
+    ```
+    You will see messages indicating that the ports are being forwarded in the background.
 
-# Deploy Prometheus and Grafana services
-kubectl apply -f k8s/monitoring/prometheus-grafana-deployment.yaml
+**3. Access Prometheus in Browser:**
+    Open your browser and navigate to the following address:
+    ```
+    http://127.0.0.1:9090
+    ```
+    You can check the "Targets" page to confirm Prometheus is scraping metrics from your MLflow and model services. To do this, use the command:
+    ```bash
+    ./scripts/monitoring.sh check-targets
+    ```
 
-# Verify deployment
-kubectl get all -n mlflow-prod
-kubectl get pods -n mlflow-prod | grep -E "prometheus|grafana"
-```
+**4. Access Grafana in Browser:**
+    Open another browser tab and go to the following address:
+    ```
+    http://127.0.0.1:3000
+    ```
+    You will be prompted to log in. Use the default credentials:
+    *   **Username:** `admin`
+    *   **Password:** `admin123456789`
+    After logging in, navigate to "Dashboards" and select the pre-configured **"MLflow & Model Server Monitoring"** dashboard to visualize your metrics.
 
-### 8.2) Acessar Prometheus
+<h3>Other Practical Needs</h3>
 
-**Via Port-Forward (recomendado para desenvolvimento):**
-```bash
-kubectl port-forward svc/prometheus -n mlflow-prod 9090:9090
-# → acessar: http://127.0.0.1:9090
-```
-
-**Via Minikube Service:**
-```bash
-minikube service prometheus -n mlflow-prod
-```
-
-**Verificar Targets de Scrape:**
-```bash
-curl -s http://127.0.0.1:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, instance: .labels.instance, state: .health}'
-
-# Expected UP targets:
-# - prometheus
-# - mlflow-server
-# - model-server
-```
-
-### 8.3) Acessar Grafana
-
-**Via Port-Forward:**
-```bash
-kubectl port-forward svc/grafana -n mlflow-prod 3000:3000
-# → acessar: http://127.0.0.1:3000
-```
-
-**Via Minikube Service:**
-```bash
-minikube service grafana -n mlflow-prod
-```
-
-**Login Padrão:**
-- **Usuário:** `admin`
-- **Senha:** `admin123456789`
-
-### 8.4) Visualizar Dashboard Pré‑configurado
-
-O dashboard é provisonado automaticamente via ConfigMap:
-
-1. Faça login no Grafana (http://127.0.0.1:3000)
-2. Clique em **Dashboards** → **MLflow & Model Server Monitoring**
-3. Veja métricas em tempo real:
-   - Status do servidor MLflow e latência de requisições
-   - Taxa de requisições e taxa de erros do servidor de modelos
-   - Métricas de pods e nós do Kubernetes
-
-**Importação Manual do Dashboard (se não for provisionado):**
-```bash
-# Copy dashboard JSON
-kubectl create configmap grafana-dashboard-mlflow \
-  --from-file=k8s/monitoring/dashboards/mlflow-monitoring-dashboard.json \
-  -n mlflow-prod
-```
-
-### 8.5) Métricas-chave para monitorar
-
-**Servidor MLflow:**
-- Taxa de requisições: `rate(http_requests_total{job="mlflow-server"}[5m])`
-- Taxa de erros (4xx, 5xx): `rate(http_requests_total{job="mlflow-server",status=~"4..|5.."}[5m])`
-- Latência (p95): `histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="mlflow-server"}[5m]))`
-- Experimentos ativos: `mlflow_experiment_created_total`
-
-**Servidor de Modelos:**
-- Taxa de requisições de inferência: `rate(http_requests_total{job="model-server"}[5m])`
-- Latência de inferência: `histogram_quantile(0.95, rate(mlflow_model_request_duration_seconds_bucket[5m]))`
-- Taxa de erros: `rate(http_requests_total{job="model-server",status=~"4..|5.."}[5m])`
-- Predictions/sec: `rate(mlflow_predictions_total[5m])`
-
-**Kubernetes & Sistema:**
-- CPU container: `rate(container_cpu_usage_seconds_total{namespace="mlflow-prod"}[5m])`
-- Memória container: `container_memory_usage_bytes{namespace="mlflow-prod"}`
-- Contagem de pods: `count(kube_pod_info{namespace="mlflow-prod"})`
-- CPU de nó: `rate(node_cpu_seconds_total{mode!="idle"}[5m])`
-
-### 8.6) Criar Dashboard Personalizado (Exemplos PromQL)
-
-**Exemplo 1: Taxa de sucesso do MLflow**
-```promql
-sum(rate(http_requests_total{job="mlflow-server",status="200"}[5m])) / sum(rate(http_requests_total{job="mlflow-server"}[5m])) * 100
-```
-
-**Exemplo 2: Throughput de inferência**
-```promql
-sum(rate(http_requests_total{job="model-server",path="/invocations"}[5m])) by (status)
-```
-
-**Exemplo 3: Tendência de uso de memória**
-```promql
-sum(container_memory_usage_bytes{namespace="mlflow-prod"}) by (pod_name)
-```
-
-### 8.7) Visualizar Regras de Alerta
-
-**Checar alertas ativos no Prometheus:**
-```bash
-curl -s http://127.0.0.1:9090/api/v1/alerts | jq .
-```
-
-**Ver alertas na UI do Grafana:**
-1. Clique em **Alerts** (ícone de sino) → **Alert rules**
-2. Veja estados firing, pending e normal
-3. Adicione canais de notificação (Email, Slack, etc.)
-
-**Regras pré-configuradas:**
-- `MLflowServerDown`: servidor inacessível (limite 1m)
-- `ModelServerDown`: servidor de modelos inacessível (limite 1m)
-- `HighCPUUsage`: CPU > 80% por 5 minutos
-- `HighMemoryUsage`: memória > 85% por 5 minutos
-- `PodCrashLooping`: pod reiniciando frequentemente (5m)
-- `HighModelLatency`: latência p95 > 1 segundo
-
-### 8.8) Ajustes de desempenho (opcional)
-
-**Aumentar retenção de métricas (padrão 30 dias):**
-```bash
-kubectl patch deployment prometheus -n mlflow-prod -p \
-  '{"spec":{"template":{"spec":{"containers":[{"name":"prometheus","args":["--storage.tsdb.retention.time=365d"]}]}}}}'
-```
-
-**Reduzir cardinalidade (alto consumo de memória):**
-Edite `k8s/monitoring/prometheus-config.yaml` e adicione relabeling:
-```yaml
-metric_relabel_configs:
-  - source_labels: [__name__]
-    regex: 'node_(network|netdev).*'
-    action: drop  # Descarte métricas com alta cardinalidade
-```
-
-**Aumentar recursos do Prometheus:**
-```yaml
-resources:
-  requests:
-    cpu: 500m
-    memory: 1Gi
-  limits:
-    cpu: 2000m
-    memory: 2Gi
-```
-
-### 8.9) Solução de problemas
-
-**Targets do Prometheus não estão sendo scraping:**
-```bash
-# Check Prometheus logs
-kubectl logs deployment/prometheus -n mlflow-prod --tail=50
-
-# Verify service discovery
-curl -s http://127.0.0.1:9090/service-discovery | jq .
-
-# Test connectivity to target
-kubectl exec -it deployment/prometheus -n mlflow-prod -- \
-  curl -v http://mlflow-service.mlflow-prod.svc.cluster.local:5000/metrics
-```
+*   **Check Component Status:**
+    ```bash
+    ./scripts/monitoring.sh status
+    ```
+*   **View Logs:**
+    ```bash
+    ./scripts/monitoring.sh logs prometheus
+    ./scripts/monitoring.sh logs grafana
+    ```
+*   **Clean up Monitoring Stack:**
+    ```bash
+    ./scripts/monitoring.sh cleanup
+    ```
+    (Caution: this will remove all deployed monitoring resources)
 
 ---
 
-## 🖥️ Aplicação Streamlit para Predição Local
+<h2> 🖥️ Streamlit Application for Local Prediction</h2>
 
-A aplicação inclui uma interface de usuário interativa construída com **Streamlit** para realizar predições de forma local e amigável. Ideal para demonstrações e testes rápidos do modelo.
+This project includes an interactive user interface built with **Streamlit** to perform predictions locally in a user-friendly way. Ideal for demonstrations and quick model testing.
 
-### Início Rápido (Local)
+<h3>Quick Start (Local)</h3>
 
-**1. Instalação:**
+**1. Installation:**
 
 ```bash
-# Crie um ambiente virtual e ative-o (se ainda não fez)
+# Create and activate a virtual environment (if you haven't already)
 python -m venv .venv
 source .venv/bin/activate
 
-# Instale as dependências (incluindo Streamlit)
+# Install dependencies (including Streamlit)
 pip install -r requirements.txt
 ```
 
-**2. Treine o Modelo (se ainda não fez):**
+**2. Train the Model (if you haven't already):**
 
 ```bash
-# Execute o script de treinamento para gerar o modelo e metadados
+# Run the training script to generate the model and metadata
 python -m mlops_project.train
 ```
 
-**3. Execute a Aplicação Streamlit:**
+**3. Run the Streamlit Application:**
 
 ```bash
 streamlit run src/mlops_project/streamlit_app.py
 ```
 
-A aplicação será aberta automaticamente no seu navegador em `http://localhost:8501`.
+The application will automatically open in your browser at `http://localhost:8501`.
 
-### Características
+<h3>Features</h3>
 
--   **Interface Amigável:** Inputs para as 30 features do modelo.
--   **Predições em Tempo Real:** Submeta os valores para obter a predição (benigno/maligno) e as probabilidades.
--   **Geração Aleatória de Features:** Botão para preencher os campos com valores aleatórios para testes rápidos.
--   **Carregamento Dinâmico:** Carrega o modelo e seus metadados (`metadata.json`) de forma dinâmica, garantindo que a interface reflita o modelo treinado.
+-   **User-Friendly Interface:** Inputs for the 30 model features.
+-   **Real-time Predictions:** Submit values to get the prediction (benign/malignant) and probabilities.
+-   **Random Feature Generation:** Button to populate fields with random values for quick testing.
+-   **Dynamic Loading:** Loads the model and its metadata (`metadata.json`) dynamically, ensuring the interface reflects the trained model.
 
 ---
 
-## ✅ Boas Práticas / Best Practices
+<h2> ✅ Boas Práticas / Best Practices</h2>
 - Estrutura modular e escalável / Modular and scalable structure  
-- Versionamento limpo com `.gitignore` / Clean versioning with `.gitignore`  
+- Clean versioning with `.gitignore` / Clean versioning with `.gitignore`  
 - Registro completo de experimentos com MLflow / Complete experiment tracking with MLflow  
 - Separação clara entre **ETL, treinamento, avaliação e deployment** / Clear separation of **ETL, training, evaluation, and deployment**  
 - Documentação técnica voltada para recrutadores / Technical documentation tailored for recruiters
@@ -589,7 +473,7 @@ A aplicação será aberta automaticamente no seu navegador em `http://localhost
 
 ---
 
-## 🔮 Extensões Futuras / Future Extensions
+<h2> 🔮 Extensões Futuras / Future Extensions</h2>
 - Integração com **Docker/Kubernetes** / Integration with **Docker/Kubernetes**  
 - Automação de pipeline com **CI/CD (GitHub Actions)** / Pipeline automation with **CI/CD (GitHub Actions)**  
 - Monitoramento de modelos em produção / Model monitoring in production  
