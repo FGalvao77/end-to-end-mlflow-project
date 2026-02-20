@@ -1,0 +1,380 @@
+---
+# FastAPI Application Deployment with Kubernetes Integration
+# This manifest deploys the FastAPI model serving API with:
+# - Auto-scaling based on CPU usage
+# - Health checks (liveness & readiness probes)
+# - Prometheus metrics integration
+# - Proper resource management
+# - Read-only access to model artifacts
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlflow-prod
+  labels:
+    app: mlflow-project
+
+---
+# ConfigMap for API configuration (environment variables & settings)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fastapi-config
+  namespace: mlflow-prod
+data:
+  # API settings
+  API_PORT: "8000"
+  LOG_LEVEL: "INFO"
+  MODEL_PATH: "/model/model.joblib"
+  SERVE_API: "true"
+  
+  # Optional: Prometheus settings
+  PROMETHEUS_MULTIPROC_DIR: "/tmp"
+
+---
+# ServiceAccount for FastAPI pods (with minimal RBAC)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fastapi-api
+  namespace: mlflow-prod
+
+---
+# Deployment: FastAPI API Server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-api
+  namespace: mlflow-prod
+  labels:
+    app: fastapi-api
+    version: "1.0"
+spec:
+  replicas: 2  # Horizontal Pod Autoscaler will manage this
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: fastapi-api
+  template:
+    metadata:
+      labels:
+        app: fastapi-api
+        version: "1.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: fastapi-api
+      
+      # Init container: wait for model artifacts to be available
+      initContainers:
+      - name: wait-for-model
+        image: busybox:latest
+        command: ['sh', '-c', 'until [ -f /model/model.joblib ]; do echo "Waiting for model..."; sleep 2; done']
+        volumeMounts:
+        - name: model-artifacts
+          mountPath: /model
+          readOnly: true
+
+      containers:
+      - name: fastapi-api
+        image: my-mlflow-app:latest
+        imagePullPolicy: IfNotPresent
+        
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: fastapi-config
+        
+        # Additional environment variables
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: SERVE_API
+          value: "true"
+        
+        # Container ports
+        ports:
+        - name: api
+          containerPort: 8000
+          protocol: TCP
+        
+        # Liveness probe: Check if container is alive
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: api
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        # Readiness probe: Check if container is ready to accept traffic
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: api
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 2
+        
+        # Startup probe: Give pod time to start (Kubernetes 1.16+)
+        startupProbe:
+          httpGet:
+            path: /health
+            port: api
+            scheme: HTTP
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30  # 30 * 5s = 150s max startup time
+        
+        # Resource management
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        
+        # Volume mounts
+        volumeMounts:
+        - name: model-artifacts
+          mountPath: /model
+          readOnly: true
+        - name: mlruns-artifacts
+          mountPath: /mlruns
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        
+        # Security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false  # FastAPI needs to bind to port 8000
+      
+      # Pod-level security and scheduling
+      securityContext:
+        fsGroup: 1000
+      
+      # Volumes
+      volumes:
+      - name: model-artifacts
+        hostPath:
+          path: /path/to/artifacts/model  # Update this path based on your environment
+          type: DirectoryOrCreate
+      - name: mlruns-artifacts
+        hostPath:
+          path: /path/to/mlruns  # Update this path based on your environment
+          type: DirectoryOrCreate
+      - name: tmp
+        emptyDir: {}
+      
+      # Pod scheduling
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - fastapi-api
+              topologyKey: kubernetes.io/hostname
+      
+      # Restart policy
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+# Service: Expose FastAPI API
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-service
+  namespace: mlflow-prod
+  labels:
+    app: fastapi-api
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 8000
+    targetPort: api
+    nodePort: 30800
+    protocol: TCP
+  selector:
+    app: fastapi-api
+  sessionAffinity: None
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+
+---
+# HorizontalPodAutoscaler: Auto-scale FastAPI based on CPU
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fastapi-api-hpa
+  namespace: mlflow-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fastapi-api
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 1
+        periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+
+---
+# PodDisruptionBudget: Ensure minimum availability during disruptions
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fastapi-api-pdb
+  namespace: mlflow-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: fastapi-api
+
+---
+# NetworkPolicy: Allow traffic only from Prometheus and Load Balancer
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fastapi-api-netpolicy
+  namespace: mlflow-prod
+spec:
+  podSelector:
+    matchLabels:
+      app: fastapi-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    # Allow from Prometheus
+    - namespaceSelector:
+        matchLabels:
+          name: mlflow-prod
+      podSelector:
+        matchLabels:
+          app: prometheus
+    # Allow from same namespace
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8000
+
+---
+# ServiceMonitor: Register with Prometheus (if using Prometheus Operator)
+# Uncomment if you have Prometheus Operator installed in your cluster
+# apiVersion: monitoring.coreos.com/v1
+# kind: ServiceMonitor
+# metadata:
+#   name: fastapi-api-monitor
+#   namespace: mlflow-prod
+#   labels:
+#     app: fastapi-api
+# spec:
+#   selector:
+#     matchLabels:
+#       app: fastapi-api
+#   endpoints:
+#   - port: http
+#     path: /metrics
+#     interval: 30s
+#     scrapeTimeout: 10s
+
+---
+# PrometheusRule: Alert rules for FastAPI (if using Prometheus Operator)
+# Uncomment if you have Prometheus Operator installed in your cluster
+# apiVersion: monitoring.coreos.com/v1
+# kind: PrometheusRule
+# metadata:
+#   name: fastapi-api-alerts
+#   namespace: mlflow-prod
+#   labels:
+#     app: fastapi-api
+# spec:
+#   groups:
+#   - name: fastapi-api
+#     interval: 30s
+#     rules:
+#     - alert: FastAPIPredictionErrorRate
+#       expr: (sum(rate(prediction_requests_failed[5m])) / sum(rate(prediction_requests_total[5m]))) > 0.05
+#       for: 5m
+#       labels:
+#         severity: warning
+#       annotations:
+#         summary: "High FastAPI prediction error rate"
+#         description: "Error rate > 5% for 5 minutes"
+#     
+#     - alert: FastAPIHighLatency
+#       expr: histogram_quantile(0.95, rate(prediction_latency_seconds_bucket[5m])) > 0.5
+#       for: 5m
+#       labels:
+#         severity: warning
+#       annotations:
+#         summary: "High FastAPI prediction latency"
+#         description: "p95 latency > 500ms for 5 minutes"
+#     
+#     - alert: FastAPIDown
+#       expr: up{job="fastapi-api"} == 0
+#       for: 1m
+#       labels:
+#         severity: critical
+#       annotations:
+#         summary: "FastAPI service is down"
+#         description: "FastAPI service has been down for 1 minute"

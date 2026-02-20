@@ -1,0 +1,214 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlflow-prod
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-pvc
+  namespace: mlflow-prod
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-server
+  namespace: mlflow-prod
+  labels:
+    app: mlflow-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mlflow-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: mlflow-server
+    spec:
+      containers:
+      - name: mlflow
+        image: my-mlflow-app:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5000
+          name: mlflow
+          protocol: TCP
+        env:
+        - name: MLFLOW_BACKEND_STORE_URI
+          value: "sqlite:////mlruns/mlflow.db"
+        - name: MLFLOW_DEFAULT_ARTIFACT_ROOT
+          value: "file:///mlruns/artifacts"
+        volumeMounts:
+        - name: mlflow-storage
+          mountPath: /mlruns
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: mlflow-storage
+        persistentVolumeClaim:
+          claimName: mlflow-pvc
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-service
+  namespace: mlflow-prod
+  labels:
+    app: mlflow-server
+spec:
+  type: NodePort
+  ports:
+  - port: 5000
+    targetPort: 5000
+    nodePort: 30500
+    protocol: TCP
+    name: mlflow
+  selector:
+    app: mlflow-server
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-server
+  namespace: mlflow-prod
+  labels:
+    app: model-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: model-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: model-server
+    spec:
+      containers:
+      - name: model
+        image: my-mlflow-app:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: model
+          protocol: TCP
+        env:
+        - name: SERVE_MODEL
+          value: "1"
+        - name: SERVE_MODEL_PATH
+          value: "/model"
+        volumeMounts:
+        - name: model-artifact
+          mountPath: /model
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: model-artifact
+        emptyDir: {}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-service
+  namespace: mlflow-prod
+  labels:
+    app: model-server
+spec:
+  type: NodePort
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30800
+    protocol: TCP
+    name: model
+  selector:
+    app: model-server
+
+---
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: model-server-hpa
+  namespace: mlflow-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: model-server
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

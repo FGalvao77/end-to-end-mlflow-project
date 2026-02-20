@@ -5,7 +5,7 @@ services:
     image: ghcr.io/mlflow/mlflow:latest
     container_name: mlflow_container
     ports:
-      - "5000:5000"
+      - "5001:5000"
     volumes:
       # map host ./mlruns to a simple path inside the container
       # with rw permissions to ensure the server can write artifacts
@@ -27,10 +27,37 @@ services:
       --default-artifact-root $${MLFLOW_DEFAULT_ARTIFACT_ROOT}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # FastAPI Model Serving Service
+  api:
+    build:
+      context: ../..
+      dockerfile: src/mlops_project/Dockerfile
+    container_name: fastapi_server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../artifacts:/app/artifacts:ro  # Read-only access to trained model
+      - ../../mlruns:/app/mlruns:ro
+    environment:
+      - SERVE_API=true
+      - API_PORT=8000
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 10s
+    networks:
+      - default
 
   # Optional: Training service that runs inside container with same path context as MLflow
   # Use: docker compose exec training python train.py
@@ -55,3 +82,7 @@ services:
         cd src/mlops_project && \
         python train.py
     profiles: ["training"]  # Only run with: docker compose --profile training up
+
+networks:
+  default:
+    name: mlflow-network

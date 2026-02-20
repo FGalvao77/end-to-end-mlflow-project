@@ -1,9 +1,8 @@
 .env
 
-step-by-step_instructions_for_execution.ipynb
+# optionally ignore virtual environment and build artifacts
+.venv/
+__pycache__/
+*.pyc
 
-test.py
-tests/test_data_preprocessing.py
-tests/test_deploy.py
-tests/test_evaluate.py
-tests/test_train.py
+# notebooks contain step-by-step walkthroughs and are committed

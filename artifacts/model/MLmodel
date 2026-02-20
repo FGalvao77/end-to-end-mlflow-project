@@ -11,11 +11,11 @@ flavors:
     code: null
     pickled_model: model.pkl
     serialization_format: cloudpickle
-    sklearn_version: 1.8.0
+    sklearn_version: 1.6.1
     skops_trusted_types: null
 mlflow_version: 3.9.0
 model_id: null
 model_size_bytes: 4693874
-model_uuid: 94e35f2bc01c4154b711126ab69062f0
+model_uuid: 896425a58927498f9d0acbd8fbaa247d
 prompts: null
-utc_time_created: '2026-02-18 21:39:08.111171'
+utc_time_created: '2026-02-20 01:50:46.383219'

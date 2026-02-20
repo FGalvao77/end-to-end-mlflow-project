@@ -19,11 +19,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia o restante código do projeto para o diretório de trabalho no container (/app)
 COPY . . 
 
-# Expõe a porta do MLflow para permitir acesso externo (ajuste conforme necessário)
-EXPOSE 5000 
+# Expõe as portas usadas pelo tracker e pelo model serving
+EXPOSE 5000 8000
 
-# Comando para iniciar o servidor do MLflow (ajuste conforme necessário)
-# 'mlflow server' já serve a interface web; o argumento 'ui' não é suportado nas versões
-# mais recentes e provoca o erro "unexpected extra argument (ui)".
-CMD ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000"]
+# Copia e habilita o entrypoint que escolhe entre "mlflow server" e "mlflow models serve"
+COPY src/mlops_project/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["sh", "-c", "echo 'No command supplied; entrypoint will start mlflow server by default' && exec /usr/local/bin/docker-entrypoint.sh"]
 

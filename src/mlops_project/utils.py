@@ -4,13 +4,16 @@ import yaml
 
 def load_config(file_path:str | Path, default:dict=None) -> dict:
     '''
-    Docstring for load_config
+    Load configuration from a YAML file.
     
-    :param file_path: Description
+    Tries to load the file from the given path. If not found and the path is relative,
+    tries to find it relative to the module location.
+    
+    :param file_path: Path to the YAML configuration file.
     :type file_path: str | Path
-    :param default: Description
+    :param default: Default configuration to return if loading fails (optional).
     :type default: dict
-    :return: Description
+    :return: Configuration dictionary.
     :rtype: dict
 
     Example:

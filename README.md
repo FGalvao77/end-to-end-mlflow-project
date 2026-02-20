@@ -32,18 +32,34 @@ The goal is to serve as a **technical portfolio project**, showcasing practical 
 ---
 
 ## 🏗️ Arquitetura / Architecture
+Estrutura de pastas do projeto após reorganização:
+
 ```
 end-to-end-mlflow-project/
-│── src/
+│── docs/                  # documentação, guias e cheatsheets
+│   │── fastapi/           # API-related docs (endpoints, cheatsheet, summary)
+│   │── monitoring/        # Prometheus/Grafana material, quick-start
+│   │── usage/             # passo a passo / instructions
+│   │── MLFLOW_SOLUTION.md # arquitetura geral e notas
+│── notebooks/             # Jupyter notebooks e experiment notes
+│── src/                   # código-fonte do pacote Python
 │   └── mlops_project/
-│       ├── data_preprocessing.py   # Limpeza / Data preprocessing
-│       ├── train.py                # Treinamento / Training
-│       ├── evaluate.py             # Avaliação / Evaluation
-│       └── deploy.py               # Deployment
-│── requirements.txt                # Dependências / Dependencies
-│── README.md                       # Documentação / Documentation
-│── .gitignore                      # Versionamento / Versioning
+│       ├── api.py
+│       ├── train.py
+│       ├── evaluate.py
+│       ├── deploy.py
+│       ├── utils.py
+│       └── ...            # demais módulos
+│── tests/                 # suite de testes pytest
+│── k8s/                   # manifests de Kubernetes
+│── scripts/               # utilitários de shell
+│── requirements.txt       # lista de dependências (pip)
+│── pyproject.toml         # configurações de empacotamento
+│── README.md              # documentação principal
+│── .gitignore             # arquivos ignorados pelo Git
 ```
+
+A convenção `src/` garante que o pacote `mlops_project` seja instalado via `pip install -e .` e evita problemas com importação relativa em testes.
 
 ---
 
@@ -85,15 +101,22 @@ source .venv/bin/activate
 # clone repository and install dependencies
 git clone https://github.com/FGalvao77/end-to-end-mlflow-project.git
 cd end-to-end-mlflow-project
+
+# install package in editable mode and then dependencies
+pip install -e .
 pip install -r requirements.txt
-```
+# the `-e` flag makes `mlops_project` importable by tests and scripts
+``` 
+
+> 📁 toda a documentação adicional foi movida para a pasta `docs/` (Ex.: `docs/usage/`).
 
 ### Pipeline
 ```bash
-python src/mlops_project/data_preprocessing.py
-python src/mlops_project/train.py
-python src/mlops_project/evaluate.py
-python src/mlops_project/deploy.py
+# run project modules using the installed package or by invoking the module path
+python -m mlops_project.data_preprocessing    # data preparation
+python -m mlops_project.train                 # training and logging
+python -m mlops_project.evaluate              # evaluation reports
+python -m mlops_project.deploy                # model export / packaging
 ```
 
 ### Running the test suite
@@ -123,17 +146,17 @@ export DOCKER_API_VERSION=1.44
 docker compose -f src/mlops_project/docker-compose.mlflow.yml up -d
 ```
 
-The UI will be available at **`http://127.0.0.1:5000`** (NOT `http://0.0.0.0:5000` 
+The UI (when started via the provided compose file) will be available at **`http://127.0.0.1:5001`** (NOT `http://0.0.0.0:5000` 
 which doesn't work in browsers). You can also point the code at a remote 
 tracking server by setting `MLFLOW_TRACKING_URI` in your environment:
 
 ```bash
-# Access MLflow UI in browser:
-http://127.0.0.1:5000        # ✓ Localhost (recommended)
-http://localhost:5000        # ✓ Hostname alias
+# Access MLflow UI in browser (compose mapping uses host port 5001):
+http://127.0.0.1:5001        # ✓ Localhost (recommended)
+http://localhost:5001        # ✓ Hostname alias
 
-# Point training code to MLflow server:
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000  # From host
+# Point training code to MLflow server (from host, when using compose):
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5001  # From host
 # OR inside container:
 export MLFLOW_TRACKING_URI=http://mlflow:5000     # Docker network
 ```
@@ -205,7 +228,108 @@ Simply don't set `MLFLOW_TRACKING_URI` - the script defaults to a local file sto
 
 # View experiments in the UI
 mlflow ui
+
+# Se houver mensagem de erro, como:
+
+ERROR: [Errno 98] Adress already in use
+
+# 1⁰ Verifique que processo está usando o 5000 (ou a porta que você especificou):
+lsof -i :5000
+# ou
+ss -ltnp | grep 5000
+
+# 2⁰ Mate o processo (no exemplo abaixo o PID é 12345):
+kill 12345
+# se não encerrar:
+kill -9 12345
+
+# 3⁰ Reinicie a UI opcionalmente indicando outra porta se preferir:
+mlflow ui --port 5001
 ```
+
+### Running the built image (examples)
+
+Start the MLflow tracking server from the image (host port 5001 -> container 5000):
+
+```bash
+# start mlflow server
+docker run --rm --name mlflow_local -p 5001:5000 \
+    -v "$(pwd)/mlruns":/mlruns:rw \
+    -e MLFLOW_BACKEND_STORE_URI=sqlite:////mlruns/mlflow.db \
+    -e MLFLOW_DEFAULT_ARTIFACT_ROOT=file:///mlruns/artifacts \
+    my-mlflow-app:latest
+```
+
+Serve a saved MLflow model (host 8000 -> container 8000). Set `SERVE_MODEL=1` and `SERVE_MODEL_PATH`:
+
+```bash
+# serve model from project artifacts
+docker run --rm --name model_server -p 8000:8000 \
+    -v "$(pwd)/artifacts/model":/model:ro \
+    -e SERVE_MODEL=1 -e SERVE_MODEL_PATH=/model \
+    my-mlflow-app:latest
+```
+
+Check endpoints:
+
+```bash
+curl -s http://127.0.0.1:5001/health   # MLflow server
+curl -s http://127.0.0.1:8000/ping     # model server
+```
+
+### Deploying to Kubernetes
+
+#### ⚠️ Prerequisite: Minikube must be running
+
+Before deploying to Kubernetes, you need an active cluster. The simplest way is via **Minikube**:
+
+```bash
+# Check if Minikube is running
+minikube status
+
+# If not, start it
+minikube start
+
+# Verify kubectl connectivity
+kubectl cluster-info
+kubectl get nodes
+```
+
+#### Deploy to Kubernetes
+
+The project includes Kubernetes manifests for production-ready deployment:
+
+```bash
+# Deploy to Kubernetes cluster (default: Minikube)
+kubectl apply -f k8s/mlflow-deployment.yaml
+
+# Check status
+kubectl get all -n mlflow-prod
+
+# For detailed K8s setup, troubleshooting, and CI/CD integration see k8s/README.md
+```
+
+**Quick Kubernetes Commands:**
+```bash
+# Port-forward for local access (Minikube)
+kubectl port-forward svc/mlflow-service -n mlflow-prod 5000:5000 &
+kubectl port-forward svc/model-service -n mlflow-prod 8000:8000 &
+
+# View MLflow UI: http://localhost:5000
+# Model Server: http://localhost:8000/ping
+
+# Scale model server
+kubectl scale deployment model-server -n mlflow-prod --replicas=5
+
+# Remove all K8s resources
+kubectl delete namespace mlflow-prod
+```
+
+See [k8s/README.md](k8s/README.md) for:
+- Full installation guide (kubectl, Minikube, cloud clusters)  
+- Image registry setup (Docker Hub, ECR, GCR)  
+- Monitoring, scaling, and troubleshooting  
+- CI/CD automation examples  
 
 #### Solution 3: Configure S3-compatible artifact store (Production)
 
@@ -225,12 +349,464 @@ export AWS_SECRET_ACCESS_KEY=minioadmin
 
 ---
 
+## 📊 Monitoramento e Observabilidade / Monitoring & Observability
+
+### Prometheus + Grafana Stack
+
+This project includes a complete monitoring solution using **Prometheus** and **Grafana** for observability of MLflow and model serving infrastructure.
+
+O projeto inclui uma solução completa de monitoramento usando **Prometheus** e **Grafana** para observabilidade da infraestrutura MLflow e model serving.
+
+#### Quick Start
+
+```bash
+# Deploy monitoring stack
+kubectl apply -f k8s/monitoring/prometheus-config.yaml
+kubectl apply -f k8s/monitoring/prometheus-grafana-deployment.yaml
+
+# Access Prometheus (port-forward)
+kubectl port-forward svc/prometheus -n mlflow-prod 9090:9090
+# → http://127.0.0.1:9090
+
+# Access Grafana (port-forward)
+kubectl port-forward svc/grafana -n mlflow-prod 3000:3000
+# → http://127.0.0.1:3000 (admin / admin123456789)
+```
+
+#### Key Features
+
+**Real-time Metrics:**
+- MLflow server health and performance
+- Model serving inference latency and throughput
+- Kubernetes pod and node metrics
+- HTTP request rates, errors, and latencies
+
+**Pre-configured Dashboards:**
+- MLflow & Model Server Monitoring (request rates, latencies, success rates)
+- Kubernetes cluster health and resource utilization
+- Custom PromQL queries for detailed analysis
+
+**Alert Rules:**
+- Critical: Server downtime, pod crashes, high error rates
+- Warning: High CPU/memory usage, model latency spikes, training failures
+
+#### Components
+
+| Component | Port | Purpose |
+|-----------|------|---------|
+| **Prometheus** | 9090 (NodePort: 30090) | Metrics collection, storage, alerting rules |
+| **Grafana** | 3000 (NodePort: 30300) | Metrics visualization, dashboards, alerts |
+
+#### Scrape Targets
+
+Prometheus automatically scrapes metrics from:
+- Prometheus itself: `http://prometheus:9090`
+- MLflow server: `http://mlflow-service:5000/metrics`
+- Model server: `http://model-service:8000/metrics`
+- Kubernetes API, nodes, and pods (service discovery)
+
+#### Example Queries
+
+**MLflow Request Health:**
+```promql
+sum(rate(http_requests_total{job="mlflow-server", status="200"}[5m])) by (path)
+```
+
+**Model Inference Latency (p95):**
+```promql
+histogram_quantile(0.95, rate(mlflow_model_request_duration_seconds_bucket[5m]))
+```
+
+**Pod CPU Usage:**
+```promql
+sum(rate(container_cpu_usage_seconds_total{namespace="mlflow-prod"}[5m])) by (pod)
+```
+
+#### For Detailed Configuration
+
+See [monitoring/README.md](monitoring/README.md) for:
+- Complete setup guide (Kubernetes, Minikube, cloud)
+- Dasboard creation and customization
+- PromQL query examples
+- Troubleshooting
+- Performance tuning
+- Alert configuration
+
+---
+
+## 🚀 FastAPI REST API for Model Serving
+
+This project includes a **production-ready FastAPI application** for serving machine learning model predictions via REST endpoints. The API is fully integrated with **Prometheus metrics**, **health checks**, and **batch prediction support**.
+
+O projeto inclui uma **aplicação FastAPI pronta para produção** para servir previsões de modelos de machine learning através de endpoints REST. A API é totalmente integrada com **métricas Prometheus**, **health checks** e **suporte para previsões em lote**.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│         FastAPI Application (api.py)                    │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │  Endpoints:                                       │  │
+│  │  - /health, /ping               [Health Checks]  │  │
+│  │  - /model/metadata, /features   [Model Info]     │  │
+│  │  - /predict                     [Single Pred]    │  │
+│  │  - /batch-predict               [Batch Pred]     │  │
+│  │  - /invocations                 [MLflow Compat]  │  │
+│  │  - /metrics, /prometheus-metrics[Prometheus]    │  │
+│  └───────────────────────────────────────────────────┘  │
+│                       ↓                                   │
+│          Load Model on Startup (artifacts/)              │
+│                       ↓                                   │
+│         Pydantic Validation (schemas.py)                 │
+│                       ↓                                   │
+│     Prometheus Metrics (counters, histograms, gauges)    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Quick Start (Docker)
+
+**Start the API server:**
+
+```bash
+# Start with Docker Compose
+export DOCKER_API_VERSION=1.44
+docker compose -f src/mlops_project/docker-compose.mlflow.yml up -d api
+
+# The API will be available at http://127.0.0.1:8000
+```
+
+**Or run standalone (local):**
+
+```bash
+# Install FastAPI dependencies (included in requirements.txt)
+pip install -r requirements.txt
+
+# Run the API
+python -m uvicorn src.mlops_project.api:app --host 0.0.0.0 --port 8000
+
+# The API will be available at http://127.0.0.1:8000
+```
+
+### Available Endpoints
+
+#### Health Checks & Info (Liveness/Readiness Probes)
+
+| Method | Endpoint | Purpose | Status Code |
+|--------|----------|---------|-------------|
+| GET | `/health` | Kubernetes liveness probe | 200 if healthy |
+| GET | `/ping` | MLflow compatibility check | 200 if ready |
+| GET | `/model/metadata` | Model information (accuracy, F1, classes) | 200 |
+| GET | `/model/features` | Expected feature names | 200 |
+
+#### Predictions
+
+| Method | Endpoint | Purpose | Input | Output |
+|--------|----------|---------|-------|--------|
+| POST | `/predict` | Single prediction | 30 features | Prediction + confidence |
+| POST | `/batch-predict` | Batch predictions (1-1000) | Array of features | Array of predictions |
+| POST | `/invocations` | MLflow-compatible endpoint | MLflow dataframe_split format | MLflow format response |
+
+#### Monitoring & Metrics
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/metrics` | Prometheus metrics (default format) |
+| GET | `/prometheus-metrics` | Prometheus metrics (explicit) |
+| GET | `/docs` | Interactive API documentation (Swagger UI) |
+| GET | `/redoc` | Alternative API documentation (ReDoc) |
+
+### Example Usage (cURL)
+
+**1. Health Check**
+
+```bash
+curl -X GET http://127.0.0.1:8000/health
+```
+
+Response:
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "model_loaded": true,
+  "timestamp": "2024-01-15T10:30:45.123456"
+}
+```
+
+**2. Get Model Metadata**
+
+```bash
+curl -X GET http://127.0.0.1:8000/model/metadata
+```
+
+Response:
+```json
+{
+  "name": "sklearn-model",
+  "version": "1.0.0",
+  "accuracy": 0.92,
+  "f1_score": 0.89,
+  "classes": ["class_0", "class_1"],
+  "n_features": 30
+}
+```
+
+**3. Single Prediction**
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "feature_1": 0.5,
+    "feature_2": 0.3,
+    "feature_3": 0.7,
+    ... (30 features total)
+  }'
+```
+
+Response:
+```json
+{
+  "prediction": 1,
+  "probability": [0.08, 0.92],
+  "confidence": 0.92,
+  "timestamp": "2024-01-15T10:30:45.123456"
+}
+```
+
+**4. Batch Predictions (Multiple Items)**
+
+```bash
+curl -X POST http://127.0.0.1:8000/batch-predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {
+        "feature_1": 0.5,
+        "feature_2": 0.3,
+        ... (30 features total)
+      },
+      {
+        "feature_1": 0.2,
+        "feature_2": 0.8,
+        ... (30 features total)
+      }
+    ]
+  }'
+```
+
+Response:
+```json
+{
+  "predictions": [
+    {
+      "prediction": 1,
+      "probability": [0.08, 0.92],
+      "confidence": 0.92
+    },
+    {
+      "prediction": 0,
+      "probability": [0.78, 0.22],
+      "confidence": 0.78
+    }
+  ],
+  "processing_time_ms": 45.23,
+  "total_records": 2
+}
+```
+
+**5. Get Metrics (Prometheus format)**
+
+```bash
+curl -s http://127.0.0.1:8000/metrics | head -20
+```
+
+Output:
+```
+# HELP prediction_requests_total Total number of prediction requests
+# TYPE prediction_requests_total counter
+prediction_requests_total{endpoint="predict"} 127
+prediction_requests_total{endpoint="batch_predict"} 34
+
+# HELP prediction_latency_seconds Prediction processing latency
+# TYPE prediction_latency_seconds histogram
+prediction_latency_seconds_bucket{endpoint="predict",le="0.01"} 120
+prediction_latency_seconds_bucket{endpoint="predict",le="0.05"} 125
+prediction_latency_seconds_bucket{endpoint="predict",le="0.1"} 127
+```
+
+### Interactive API Documentation
+
+Once the API is running, access the interactive documentation:
+
+- **Swagger UI (Recommended):** http://127.0.0.1:8000/docs
+- **ReDoc (Alternative):** http://127.0.0.1:8000/redoc
+
+These interfaces allow you to:
+- Browse all available endpoints
+- View request/response schemas
+- Test endpoints directly in the browser
+- See real-time responses
+
+### Deploying to Kubernetes
+
+The project includes Kubernetes manifests for the FastAPI API:
+
+```bash
+# Deploy FastAPI API to Kubernetes
+kubectl apply -f k8s/fastapi-deployment.yaml
+
+# Check status
+kubectl get all -n mlflow-prod
+
+# Port-forward for local access
+kubectl port-forward svc/fastapi-service -n mlflow-prod 8000:8000 &
+
+# Access the API
+curl http://localhost:8000/health
+```
+
+**Kubernetes Configuration Includes:**
+- Deployment with auto-scaling (2-5 replicas)
+- Service (NodePort: 30800 for external access)
+- Health checks (liveness & readiness probes)
+- Resource limits and requests
+- Environment variables for configuration
+
+### Monitoring the API (Prometheus + Grafana)
+
+The FastAPI application exposes metrics compatible with Prometheus. Track:
+
+- **Request volume:** `sum(rate(prediction_requests_total[5m]))`
+- **Error rate:** `sum(rate(prediction_requests_failed[5m]))`
+- **Latency (p95):** `histogram_quantile(0.95, rate(prediction_latency_seconds_bucket[5m]))`
+- **Model load status:** `model_loaded` (gauge)
+- **Uptime:** `api_uptime_seconds` (gauge)
+
+**View metrics in Grafana:**
+1. Access Grafana: http://127.0.0.1:3000 (port-forwarded)
+2. Dashboard: "API Metrics" shows FastAPI performance
+3. Alerts trigger if error rate > 5% or latency > 500ms
+
+### API Configuration
+
+**Environment Variables:**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `API_PORT` | 8000 | Port the API listens on |
+| `MODEL_PATH` | `artifacts/model/model.joblib` | Path to trained model |
+| `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `SERVE_API` | (set by docker-compose) | Enable API mode in Docker entrypoint |
+
+**Model Requirements:**
+- Must be a scikit-learn model (joblib-serialized)
+- Must accept 30 input features
+- Must support `.predict()` and `.predict_proba()` methods
+
+### Error Handling
+
+**400 Bad Request:** Invalid input (wrong number of features, missing fields)
+```json
+{
+  "error": "Validation error",
+  "details": "Expected 30 features, got 29"
+}
+```
+
+**404 Not Found:** Model not loaded
+```json
+{
+  "error": "Model not available",
+  "details": "Model file not found at artifacts/model/model.joblib"
+}
+```
+
+**500 Internal Server Error:** Server error
+```json
+{
+  "error": "Internal server error",
+  "details": "Model prediction failed"
+}
+```
+
+### Performance Testing
+
+```bash
+# Test single prediction latency
+time curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d "@sample_request.json"
+
+# Load test with Apache Bench
+ab -n 1000 -c 10 -p sample_request.json \
+  -T application/json http://127.0.0.1:8000/predict
+
+# Load test with wrk (concurrent connections)
+wrk -t4 -c100 -d30s -s test_predict.lua http://127.0.0.1:8000/predict
+```
+
+### For Detailed Information
+
+See [src/mlops_project/](src/mlops_project/) for:
+- `api.py` - FastAPI application with all endpoints
+- `schemas.py` - Pydantic request/response models
+- `docker-compose.mlflow.yml` - Docker Compose configuration with 'api' service
+- `docker-entrypoint.sh` - Smart entrypoint (SERVE_API flag support)
+
+---
+
+## 🖥️ Streamlit Application for Local Prediction
+
+A aplicação inclui uma interface de usuário interativa construída com **Streamlit** para realizar predições de forma local e amigável. Ideal para demonstrações e testes rápidos do modelo.
+
+O projeto inclui uma **aplicação Streamlit** para servir previsões de modelos de machine learning via interface gráfica. A aplicação é ideal para **demonstrações locais** e para **verificar rapidamente o comportamento do modelo**.
+
+### Quick Start (Local)
+
+**1. Instalação:**
+
+```bash
+# Crie um ambiente virtual e ative-o (se ainda não fez)
+python -m venv .venv
+source .venv/bin/activate
+
+# Instale as dependências (incluindo Streamlit)
+pip install -r requirements.txt
+```
+
+**2. Treine o Modelo (se ainda não fez):**
+
+```bash
+# Execute o script de treinamento para gerar o modelo e metadados
+python -m mlops_project.train
+```
+
+**3. Execute a Aplicação Streamlit:**
+
+```bash
+streamlit run src/mlops_project/streamlit_app.py
+```
+
+A aplicação será aberta automaticamente no seu navegador em `http://localhost:8501`.
+
+### Características
+
+-   **Interface Amigável:** Inputs para as 30 features do modelo.
+-   **Predições em Tempo Real:** Submeta os valores para obter a predição (benigno/maligno) e as probabilidades.
+-   **Geração Aleatória de Features:** Botão para preencher os campos com valores aleatórios para testes rápidos.
+-   **Carregamento Dinâmico:** Carrega o modelo e seus metadados (`metadata.json`) de forma dinâmica, garantindo que a interface reflita o modelo treinado.
+
+---
+
 ## ✅ Boas Práticas / Best Practices
 - Estrutura modular e escalável / Modular and scalable structure  
 - Versionamento limpo com `.gitignore` / Clean versioning with `.gitignore`  
 - Registro completo de experimentos com MLflow / Complete experiment tracking with MLflow  
 - Separação clara entre **ETL, treinamento, avaliação e deployment** / Clear separation of **ETL, training, evaluation, and deployment**  
-- Documentação técnica voltada para recrutadores / Technical documentation tailored for recruiters  
+- Documentação técnica voltada para recrutadores / Technical documentation tailored for recruiters
+- **Clean Code & Consistência:** Código refatorado para maior clareza, menos hardcoding e carregamento dinâmico de metadados do modelo.
+- **Dynamic Model Metadata:** FastAPI e Streamlit agora carregam metadados do modelo (`metadata.json`) e nomes de features dinamicamente, reduzindo a chance de inconsistências.
 
 ---
 
@@ -239,6 +815,8 @@ export AWS_SECRET_ACCESS_KEY=minioadmin
 - Automação de pipeline com **CI/CD (GitHub Actions)** / Pipeline automation with **CI/CD (GitHub Actions)**  
 - Monitoramento de modelos em produção / Model monitoring in production  
 - Inclusão de testes unitários e integração contínua / Unit testing and continuous integration  
+- **MLflow Model Registry:** Integrar a gestão de versões e estágios do modelo via MLflow Model Registry para rastreamento completo do ciclo de vida.
+- **Data Drift Monitoring:** Adicionar componentes para monitorar o desvio de dados em produção e alertar sobre potenciais degradações de desempenho.
 
 ---
 

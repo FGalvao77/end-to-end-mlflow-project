@@ -7,9 +7,15 @@ def evaluate_model() -> dict:
     This function assumes the training script has written a text file at
     ``artifacts/metrics/metrics.txt`` containing lines like ``accuracy: 0.95``.
     """
-    # path relative to this module's directory (src/mlops_project)
-    metrics_file = Path(__file__).parent / 'artifacts' / 'metrics' / 'metrics.txt'
-    metrics_file = metrics_file.resolve()
+    # Locate metrics file relative to project root
+    # deploy.py -> mlops_project -> src -> project_root
+    project_root = Path(__file__).resolve().parent.parent.parent
+    metrics_file = project_root / 'artifacts' / 'metrics' / 'metrics.txt'
+    
+    if not metrics_file.exists():
+        # Fallback for local execution if path structure differs
+        metrics_file = Path('artifacts/metrics/metrics.txt').resolve()
+
     if not metrics_file.exists():
         raise FileNotFoundError(f"Metrics file not found: {metrics_file}")
 

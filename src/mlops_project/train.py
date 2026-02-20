@@ -3,16 +3,18 @@
 # Description: Script de treinamento do modelo de classificação utilizando Random Forest. O script inclui etapas de pré-processamento, treinamento, avaliação e salvamento do modelo, métricas e visualizações. O código é modularizado para facilitar a manutenção e a integração com pipelines de MLOps.
 
 # Importações necessárias para o script
-# attempt package-relative import; fall back to plain import if the module is
-# executed as a standalone script (which places the parent directory on sys.path)
-try:
-    from .load_prepare_data import load_data, prepare_data
-    from .utils import load_config
-except ImportError:  # pragma: no cover - running as script
-    from load_prepare_data import load_data, prepare_data
-    from utils import load_config
+import os
+import json
+import shutil
+import uuid
+from datetime import datetime
+import warnings
+import logging
+from pathlib import Path
 
 # Bibliotecas para modelagem, avaliação e visualização
+import matplotlib.pyplot as plt
+from joblib import dump
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
@@ -26,32 +28,25 @@ from sklearn.metrics import (classification_report,
                              recall_score, 
                              f1_score)
 
-import matplotlib.pyplot as plt
+# use absolute package imports; package layout ensures module is available
+from mlops_project.data_prep import load_data, prepare_data
+from mlops_project.utils import load_config
+
 plt.style.use(style='ggplot') 
-
-from pathlib import Path
-from joblib import dump
-
-import os
-import warnings
-import logging
 
 # Suppress MLflow warnings about missing meta.yaml files (expected when using remote servers)
 logging.getLogger('mlflow').setLevel(logging.ERROR)
 warnings.filterwarnings('ignore', message='.*meta.yaml.*')
-import shutil
-import uuid
-
 # Ignorar warnings de FutureWarning para evitar poluição do output
-import warnings
 warnings.filterwarnings(action='ignore', category=FutureWarning)
 
 # Verificar se MLflow está disponível para uso
 USE_MLFLOW = False
 try:
-    import mlflow, mlflow.sklearn 
+    import mlflow
+    import mlflow.sklearn 
     USE_MLFLOW = True
-except Exception:
+except ImportError:
     USE_MLFLOW = False
 
 # Função principal do script de treinamento
@@ -59,7 +54,7 @@ def main():
     config = load_config(file_path='configs.yaml')
     print(f'CONFIG: {config}')
 
-    # Carrega os dados usando a função load_data definida em load_prepare_data.py
+    # Carrega os dados usando a função load_data definida em data_prep.py
     X, y = load_data(as_frame=False)
     # Dividir os dados em conjuntos de treino e teste usando a função prepare_data
     X_train, X_test, y_train, y_test = prepare_data(X=X, y=y, size=config['test_size'], 
@@ -221,6 +216,20 @@ def main():
     # Exibir caminho do arquivo do modelo salvo
     print(f'Model saved to: {exported / "model.joblib"}')
 
+    # Gerar e salvar metadados do modelo em JSON
+    model_metadata = {
+        "name": config['model']['name'],
+        "version": "1.0.0",  # Or retrieve from a versioning system
+        "accuracy": metrics["accuracy"],
+        "f1_score": metrics["f1_score"],
+        "classes": [str(c) for c in pipe.classes_] if hasattr(pipe, 'classes_') else ["class_0", "class_1"], # Dynamically get class names
+        "n_features": X_train.shape[1], # Get number of features from training data
+        "framework": "scikit-learn",
+        "trained_date": datetime.now().isoformat()
+    }
+    with open(exported / 'metadata.json', 'w') as f:
+        json.dump(model_metadata, f, indent=4)
+    print(f'Model metadata saved to: {exported / "metadata.json"}')
     # Salvar o modelo usando MLflow, se disponível
     if USE_MLFLOW:
         # ensure the 'mlruns' directory exists and is writable by us; the
